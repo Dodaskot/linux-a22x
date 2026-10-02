@@ -44,6 +44,31 @@
 	};
 
 	/*
+	 * Interim pin muxing until a mainline MT6833 pinctrl driver exists:
+	 * pinctrl-single writes the 4-bit GPIO mode fields (8 pins per 32-bit
+	 * register, 0x10 stride from 0x10005300). Values match the stock kernel.
+	 */
+	pio_mode: pinctrl@10005300 {
+		compatible = "pinctrl-single";
+		reg = <0 0x10005300 0 0x200>;
+		#pinctrl-cells = <2>;
+		pinctrl-single,bit-per-mux;
+		pinctrl-single,register-width = <32>;
+		pinctrl-single,function-mask = <0xf>;
+
+		/* GPIO61 URXD0, GPIO62 UTXD0: function 1 */
+		uart0_pins: uart0-pins {
+			pinctrl-single,bits = <0x70 0x01100000 0x0ff00000>;
+		};
+
+		/* GPIO65..76 MSDC0 DSL/CLK/CMD/RSTB/DAT0-7: function 1 */
+		mmc0_pins: mmc0-pins {
+			pinctrl-single,bits = <0x80 0x11111110 0xfffffff0>,
+					      <0x90 0x00011111 0x000fffff>;
+		};
+	};
+
+	/*
 	 * Stand-in clocks until there is a mainline MT6833 clock driver.
 	 * Preloader/LK leave these running; rates were measured on the stock
 	 * kernel through /proc/clkdbg (dump_clks).
@@ -91,6 +116,9 @@
 		cap-mmc-highspeed;
 		mmc-hs200-1_8v;
 		vmmc-supply = <&reg_vemc>;
+		pinctrl-names = "default", "state_uhs";
+		pinctrl-0 = <&mmc0_pins>;
+		pinctrl-1 = <&mmc0_pins>;
 		non-removable;
 		no-sd;
 		no-sdio;
@@ -130,6 +158,11 @@
 		reg = <0 0x10007000 0 0x100>;
 		#reset-cells = <1>;
 	};
+};
+
+&apuart0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_pins>;
 };
 
 /* The stock fixed clock lacks #clock-cells, so the UART driver cannot use it. */
