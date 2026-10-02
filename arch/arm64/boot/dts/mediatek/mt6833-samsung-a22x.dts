@@ -7,6 +7,11 @@
  * The base is therefore the stock DTB with everything mainline does not use
  * disabled (see mt6833-samsung-a22x-lk-compat.dtsi); real hardware support
  * is enabled here node by node.
+ *
+ * No reserved-memory nodes are added here: LK inserts its own mblock
+ * reservations (framebuffer, pstore, ...) and hangs in
+ * reserved_memory_conflict_check if the DTB already describes them
+ * differently. ramoops is configured by LK through ramoops.* cmdline params.
  */
 
 /dts-v1/;
@@ -34,22 +39,6 @@
 			height = <2408>;
 			stride = <(1088 * 4)>;
 			format = "a8r8g8b8";
-		};
-	};
-
-	reserved-memory {
-		framebuffer@7c9b0000 {
-			reg = <0 0x7c9b0000 0 0x1e50000>;
-			no-map;
-		};
-
-		ramoops@48090000 {
-			compatible = "ramoops";
-			reg = <0 0x48090000 0 0xe0000>;
-			console-size = <0x40000>;
-			pmsg-size = <0x10000>;
-			record-size = <0x8000>;
-			no-map;
 		};
 	};
 };
