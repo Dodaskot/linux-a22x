@@ -52,3 +52,8 @@
 		#reset-cells = <1>;
 	};
 };
+
+/* The stock fixed clock lacks #clock-cells, so the UART driver cannot use it. */
+&uart_clk {
+	#clock-cells = <0>;
+};

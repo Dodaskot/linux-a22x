@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include <linux/aperture.h>
+#include <linux/memblock.h>
 #include <linux/clk.h>
 #include <linux/minmax.h>
 #include <linux/of_address.h>
@@ -690,6 +691,17 @@ static struct simpledrm_device *simpledrm_device_create(struct drm_driver *drv,
 	/*
 	 * Memory management
 	 */
+
+	if (!mem) {
+		/*
+		 * Some bootloaders (MediaTek LK) hand over a framebuffer that is
+		 * reserved but still part of the linear map. ioremap() refuses
+		 * RAM, so treat it like a "memory-region" framebuffer instead.
+		 */
+		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+		if (res && memblock_is_map_memory(res->start))
+			mem = res;
+	}
 
 	if (mem) {
 		void *screen_base;
