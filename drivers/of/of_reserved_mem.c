@@ -118,6 +118,17 @@ static int fdt_validate_reserved_mem_node(unsigned long node,
 static int fdt_fixup_reserved_mem_node(unsigned long node,
 				       phys_addr_t base, phys_addr_t size);
 
+/*
+ * MediaTek LK describes the boot splash framebuffer as an ordinary (mapped)
+ * reserved region and refuses a DTB that already marks it no-map. Keep it out
+ * of the linear map anyway so simple-framebuffer can ioremap_wc() it.
+ */
+static bool __init fdt_rmem_nomap(unsigned long node)
+{
+	return of_get_flat_dt_prop(node, "no-map", NULL) ||
+	       of_flat_dt_is_compatible(node, "mediatek,framebuffer");
+}
+
 static int __init early_init_dt_reserve_memory(phys_addr_t base,
 					       phys_addr_t size, bool nomap)
 {
@@ -157,7 +168,7 @@ static int __init __reserved_mem_reserve_reg(unsigned long node,
 		pr_warn("Reserved memory: node '%s' has %d <base size> entries, only the first is used\n",
 			uname, len);
 
-	nomap = of_get_flat_dt_prop(node, "no-map", NULL) != NULL;
+	nomap = fdt_rmem_nomap(node);
 
 	err = fdt_validate_reserved_mem_node(node, NULL);
 	if (err && err != -ENODEV)
@@ -477,7 +488,7 @@ static int __init __reserved_mem_alloc_size(unsigned long node, const char *unam
 		align = dt_mem_next_cell(dt_root_addr_cells, &prop);
 	}
 
-	nomap = of_get_flat_dt_prop(node, "no-map", NULL) != NULL;
+	nomap = fdt_rmem_nomap(node);
 
 	ret = fdt_validate_reserved_mem_node(node, &align);
 	if (ret && ret != -ENODEV)
@@ -649,7 +660,7 @@ static void __init fdt_init_reserved_mem_node(unsigned long node, const char *un
 	rmem->base = base;
 	rmem->size = size;
 
-	nomap = of_get_flat_dt_prop(node, "no-map", NULL) != NULL;
+	nomap = fdt_rmem_nomap(node);
 
 	err = __reserved_mem_init_node(rmem, node);
 	if (err != 0 && err != -ENODEV) {
