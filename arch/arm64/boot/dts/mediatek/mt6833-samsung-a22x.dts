@@ -16,6 +16,8 @@
 
 /dts-v1/;
 #include <dt-bindings/phy/phy.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/pinctrl/mt6833-pinfunc.h>
 #include "mt6833-samsung-a22x-lk-compat.dtsi"
 
@@ -71,6 +73,26 @@
 			};
 		};
 
+		spi1_pins: spi1-pins {
+			pins-bus {
+				pinmux = <PINMUX_GPIO27__FUNC_SPI1_CLK>,
+					 <PINMUX_GPIO28__FUNC_SPI1_CSB>,
+					 <PINMUX_GPIO29__FUNC_SPI1_MO>,
+					 <PINMUX_GPIO30__FUNC_SPI1_MI>;
+			};
+		};
+
+		touch_pins: touch-pins {
+			pins-irq {
+				pinmux = <PINMUX_GPIO14__FUNC_GPIO14>;
+				input-enable;
+			};
+			pins-reset {
+				pinmux = <PINMUX_GPIO15__FUNC_GPIO15>;
+				output-high;
+			};
+		};
+
 		mmc0_pins: mmc0-pins {
 			pins-bus {
 				pinmux = <PINMUX_GPIO65__FUNC_MSDC0_DSL>,
@@ -113,6 +135,23 @@
 		#clock-cells = <0>;
 		clock-frequency = <124800000>;
 		clock-output-names = "fusb_top_ck";
+	};
+
+	clk_spi_parent: clock-spi-parent {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <109200000>;
+		clock-output-names = "mainpll_d5_d4";
+	};
+
+	/* mtk-spi re-parents sel-clk onto parent-clk; make that a no-op. */
+	clk_spi_sel: clock-spi-sel {
+		compatible = "fixed-factor-clock";
+		#clock-cells = <0>;
+		clocks = <&clk_spi_parent>;
+		clock-mult = <1>;
+		clock-div = <1>;
+		clock-output-names = "spi_sel";
 	};
 
 	/* VEMC, left enabled by the bootloader for the boot eMMC. */
@@ -189,4 +228,32 @@
 /* The stock fixed clock lacks #clock-cells, so the UART driver cannot use it. */
 &uart_clk {
 	#clock-cells = <0>;
+};
+
+/*
+ * Touch: Himax HX83112F TDDI on SPI1. LK's dtbo overlay enables &spi1 and
+ * adds a "novatek@0" child (compatible list ending in "himax,common"); the
+ * properties below are merged into that node.
+ */
+&spi1 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	clocks = <&clk_spi_parent>, <&clk_spi_sel>, <&clk_spi_sel>;
+	clock-names = "parent-clk", "sel-clk", "spi-clk";
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi1_pins>;
+	status = "okay";
+
+	novatek@0 {
+		compatible = "himax,hx83112f", "himax,common";
+		reg = <0>;
+		spi-max-frequency = <9600000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&touch_pins>;
+		interrupts-extended = <&pio_ml 14 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&pio_ml 15 GPIO_ACTIVE_LOW>;
+		irq-gpios = <&pio_ml 14 GPIO_ACTIVE_LOW>;
+		touchscreen-size-x = <1080>;
+		touchscreen-size-y = <2408>;
+	};
 };

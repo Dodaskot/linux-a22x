@@ -1402,6 +1402,15 @@ config TOUCHSCREEN_ZINITIX
 	  To compile this driver as a module, choose M here: the
 	  module will be called zinitix.
 
+config TOUCHSCREEN_HIMAX_HX83112F
+	tristate "Himax HX83112F zero-flash SPI touchscreen"
+	depends on SPI && OF
+	select FW_LOADER
+	help
+	  Himax HX83112F in-cell (TDDI) touch controller on SPI, as used in
+	  the Samsung Galaxy A22 5G. The controller has no flash; firmware is
+	  loaded into its SRAM at every boot.
+
 config TOUCHSCREEN_HIMAX_HX83112B
 	tristate "Himax hx83112b touchscreen driver"
 	depends on I2C
