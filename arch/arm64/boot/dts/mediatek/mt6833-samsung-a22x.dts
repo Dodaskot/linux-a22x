@@ -16,6 +16,7 @@
 
 /dts-v1/;
 #include <dt-bindings/phy/phy.h>
+#include <dt-bindings/pinctrl/mt6833-pinfunc.h>
 #include "mt6833-samsung-a22x-lk-compat.dtsi"
 
 / {
@@ -43,28 +44,48 @@
 		};
 	};
 
-	/*
-	 * Interim pin muxing until a mainline MT6833 pinctrl driver exists:
-	 * pinctrl-single writes the 4-bit GPIO mode fields (8 pins per 32-bit
-	 * register, 0x10 stride from 0x10005300). Values match the stock kernel.
-	 */
-	pio_mode: pinctrl@10005300 {
-		compatible = "pinctrl-single";
-		reg = <0 0x10005300 0 0x200>;
-		#pinctrl-cells = <2>;
-		pinctrl-single,bit-per-mux;
-		pinctrl-single,register-width = <32>;
-		pinctrl-single,function-mask = <0xf>;
+	pio_ml: pinctrl@10005000 {
+		compatible = "mediatek,mt6833-pinctrl";
+		reg = <0 0x10005000 0 0x1000>,
+		      <0 0x11c30000 0 0x1000>,
+		      <0 0x11d10000 0 0x1000>,
+		      <0 0x11d40000 0 0x1000>,
+		      <0 0x11e20000 0 0x1000>,
+		      <0 0x11e60000 0 0x1000>,
+		      <0 0x11ea0000 0 0x1000>,
+		      <0 0x1000b000 0 0x1000>;
+		reg-names = "gpio", "iocfg_rb", "iocfg_bm", "iocfg_br",
+			    "iocfg_lm", "iocfg_bl", "iocfg_rt", "eint";
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-ranges = <&pio_ml 0 0 201>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+		interrupts = <0 212 4>;
 
-		/* GPIO61 URXD0, GPIO62 UTXD0: function 1 */
+		/* Mux only; pulls and drive strength stay as the bootloader set them. */
 		uart0_pins: uart0-pins {
-			pinctrl-single,bits = <0x70 0x01100000 0x0ff00000>;
+			pins-rx-tx {
+				pinmux = <PINMUX_GPIO61__FUNC_URXD0>,
+					 <PINMUX_GPIO62__FUNC_UTXD0>;
+			};
 		};
 
-		/* GPIO65..76 MSDC0 DSL/CLK/CMD/RSTB/DAT0-7: function 1 */
 		mmc0_pins: mmc0-pins {
-			pinctrl-single,bits = <0x80 0x11111110 0xfffffff0>,
-					      <0x90 0x00011111 0x000fffff>;
+			pins-bus {
+				pinmux = <PINMUX_GPIO65__FUNC_MSDC0_DSL>,
+					 <PINMUX_GPIO66__FUNC_MSDC0_CLK>,
+					 <PINMUX_GPIO67__FUNC_MSDC0_CMD>,
+					 <PINMUX_GPIO68__FUNC_MSDC0_RSTB>,
+					 <PINMUX_GPIO69__FUNC_MSDC0_DAT0>,
+					 <PINMUX_GPIO70__FUNC_MSDC0_DAT1>,
+					 <PINMUX_GPIO71__FUNC_MSDC0_DAT2>,
+					 <PINMUX_GPIO72__FUNC_MSDC0_DAT3>,
+					 <PINMUX_GPIO73__FUNC_MSDC0_DAT4>,
+					 <PINMUX_GPIO74__FUNC_MSDC0_DAT5>,
+					 <PINMUX_GPIO75__FUNC_MSDC0_DAT6>,
+					 <PINMUX_GPIO76__FUNC_MSDC0_DAT7>;
+			};
 		};
 	};
 
