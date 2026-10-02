@@ -58,8 +58,12 @@ int himax_parse_dt(struct himax_ts_data *ts, struct himax_platform_data *pdata)
 	device_property_read_u32(dev, "touchscreen-size-x", &x);
 	device_property_read_u32(dev, "touchscreen-size-y", &y);
 
-	pdata->gpio_reset = -1;
-	pdata->gpio_irq = -1;
+	/*
+	 * The common code only toggles reset (via himax_rst_gpio_set()) when
+	 * this is >= 0; the number itself is unused with gpiod.
+	 */
+	pdata->gpio_reset = hx_reset_gpio ? 0 : -1;
+	pdata->gpio_irq = hx_irq_gpio ? 0 : -1;
 	pdata->abs_x_min = 0;
 	pdata->abs_x_max = x;
 	pdata->abs_y_min = 0;
