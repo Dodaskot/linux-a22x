@@ -17,6 +17,9 @@ obj-$(CONFIG_SERIAL_8250)		+= 8250_base.o
 8250_base-$(CONFIG_SERIAL_8250_RSA)	+= 8250_rsa.o
 
 obj-$(CONFIG_SERIAL_8250_CONSOLE)	+= 8250_early.o
+ifeq ($(CONFIG_SERIAL_8250_CONSOLE),y)
+obj-$(CONFIG_SERIAL_8250_MT6577)	+= 8250_mt6833_early.o
+endif
 
 obj-$(CONFIG_SERIAL_8250_ACCENT)	+= 8250_accent.o
 obj-$(CONFIG_SERIAL_8250_ACORN)		+= 8250_acorn.o
