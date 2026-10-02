@@ -815,6 +815,15 @@ config COMMON_CLK_MT8188_WPESYS
 	help
 	  This driver supports MediaTek MT8188 Warp Engine clocks.
 
+config COMMON_CLK_MT6833
+	tristate "Clock driver for MediaTek MT6833"
+	depends on ARM64 || COMPILE_TEST
+	select COMMON_CLK_MEDIATEK
+	default ARM64 && ARCH_MEDIATEK
+	help
+	  This driver supports MediaTek MT6833 (Dimensity 700) basic clocks:
+	  APMIXEDSYS PLLs, TOPCKGEN muxes/dividers and INFRACFG_AO gates.
+
 config COMMON_CLK_MT8192
 	tristate "Clock driver for MediaTek MT8192"
 	depends on ARM64 || COMPILE_TEST

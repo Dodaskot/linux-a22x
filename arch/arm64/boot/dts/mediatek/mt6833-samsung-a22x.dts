@@ -257,3 +257,16 @@
 		touchscreen-size-y = <2408>;
 	};
 };
+
+/* MT6833 clock controllers (providers only for now; consumers still use stand-ins). */
+&apmixed {
+	status = "okay";
+};
+
+&topckgen {
+	status = "okay";
+};
+
+&infracfg_ao {
+	status = "okay";
+};
