@@ -120,28 +120,28 @@
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
 		clock-frequency = <384000000>;
-		clock-output-names = "msdc50_0_ck";
+		clock-output-names = "standin-msdc50_0_ck";
 	};
 
 	clk_axi: clock-axi {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
 		clock-frequency = <156000000>;
-		clock-output-names = "axi_ck";
+		clock-output-names = "standin-axi_ck";
 	};
 
 	clk_usb_top: clock-usb-top {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
 		clock-frequency = <124800000>;
-		clock-output-names = "fusb_top_ck";
+		clock-output-names = "standin-fusb_top_ck";
 	};
 
 	clk_spi_parent: clock-spi-parent {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
 		clock-frequency = <109200000>;
-		clock-output-names = "mainpll_d5_d4";
+		clock-output-names = "standin-mainpll_d5_d4";
 	};
 
 	/* mtk-spi re-parents sel-clk onto parent-clk; make that a no-op. */
@@ -151,7 +151,7 @@
 		clocks = <&clk_spi_parent>;
 		clock-mult = <1>;
 		clock-div = <1>;
-		clock-output-names = "spi_sel";
+		clock-output-names = "standin-spi_sel";
 	};
 
 	/* VEMC, left enabled by the bootloader for the boot eMMC. */
