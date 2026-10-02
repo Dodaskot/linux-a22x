@@ -2,314 +2,54 @@
 /*
  * Samsung Galaxy A22 5G (SM-A226B, "a22x") - minimal mainline bring-up.
  *
- * The bootloader (LK) loads this DTB from the boot image and then applies
- * the stock dtbo.img overlay on top of it. That overlay references the
- * labels below, so they exist as empty stubs under a node without a
- * "compatible" property; nothing under it is ever instantiated.
+ * The stock LK looks up a lot of nodes in the kernel DTB, applies dtbo.img on
+ * top of it and panics when something is missing (bootargs, mediatek,scp, ...).
+ * The base is therefore the stock DTB with everything mainline does not use
+ * disabled (see mt6833-samsung-a22x-lk-compat.dtsi); real hardware support
+ * is enabled here node by node.
  */
 
 /dts-v1/;
-#include "mt6833.dtsi"
+#include "mt6833-samsung-a22x-lk-compat.dtsi"
 
 / {
 	model = "Samsung Galaxy A22 5G (SM-A226B)";
 	compatible = "samsung,a22x", "mediatek,mt6833";
 
 	aliases {
-		serial0 = &uart0;
+		serial0 = &apuart0;
 	};
 
-	chosen: chosen {
+	chosen {
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
 		stdout-path = "serial0:921600n8";
-		/* LK asserts (bootargs.c: fdt_bootargs) if these are missing. */
 		bootargs = "console=ttyS0,921600n8";
-		kaslr-seed = <0 0>;
 
-		framebuffer0: framebuffer@7c9b0000 {
+		framebuffer@7c9b0000 {
 			compatible = "simple-framebuffer";
 			reg = <0 0x7c9b0000 0 (1088 * 2408 * 4)>;
 			width = <1080>;
 			height = <2408>;
 			stride = <(1088 * 4)>;
 			format = "a8r8g8b8";
-			memory-region = <&framebuffer_mem>;
 		};
-	};
-
-	memory@40000000 {
-		device_type = "memory";
-		/* Fixed up by LK with the real mblock layout. */
-		reg = <0 0x40000000 0x1 0x00000000>;
 	};
 
 	reserved-memory {
-		framebuffer_mem: framebuffer@7c9b0000 {
+		framebuffer@7c9b0000 {
 			reg = <0 0x7c9b0000 0 0x1e50000>;
 			no-map;
 		};
-	};
 
-	lk-dtbo-stubs {
-		accdet: accdet {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		auxadc: auxadc {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		bat_gm30: bat-gm30 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		camera_af_hw_node: camera-af-hw-node {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		charger: charger {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		dispsys_config: dispsys-config {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		dsi0: dsi0 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		dsi_te: dsi-te {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		finger_fp: finger-fp {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		gpio: gpio {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		gpio_usage_mapping: gpio-usage-mapping {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		gps: gps {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		i2c0: i2c0 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		i2c1: i2c1 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		i2c2: i2c2 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		i2c3: i2c3 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		i2c4: i2c4 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		i2c5: i2c5 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		i2c6: i2c6 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		i2c7: i2c7 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		i2c8: i2c8 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		i2c9: i2c9 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		kd_camera_hw1: kd-camera-hw1 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		keypad: keypad {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		lk_charger: lk-charger {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		md1_sim1_hot_plug_eint: md1-sim1-hot-plug-eint {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		md_auxadc: md-auxadc {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		mrdump_ext_rst: mrdump-ext-rst {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		msdc1_ins: msdc1-ins {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		mt6360_ldo: mt6360-ldo {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		mt6360_pmic: mt6360-pmic {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		mt6360_pmu: mt6360-pmu {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		mt6360_typec: mt6360-typec {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		mtkfb: mtkfb {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		mt_pmic_vcamio_ldo_reg: mt-pmic-vcamio-ldo-reg {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		mt_pmic_vfp_ldo_reg: mt-pmic-vfp-ldo-reg {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		mt_pmic_vio28_ldo_reg: mt-pmic-vio28-ldo-reg {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		mt_pmic_vtp_ldo_reg: mt-pmic-vtp-ldo-reg {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		odm: odm {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		pio: pio {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		pmic_clock_buffer_ctrl: pmic-clock-buffer-ctrl {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		sound: sound {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		spi1: spi1 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		spi5: spi5 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		subpmic_pmu_eint: subpmic-pmu-eint {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		swtp: swtp {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		swtp_1: swtp-1 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		swtp_2: swtp-2 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		swtp_3: swtp-3 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		swtp_4: swtp-4 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		touch: touch {
-			#address-cells = <1>;
-			#size-cells = <0>;
+		ramoops@48090000 {
+			compatible = "ramoops";
+			reg = <0 0x48090000 0 0xe0000>;
+			console-size = <0x40000>;
+			pmsg-size = <0x10000>;
+			record-size = <0x8000>;
+			no-map;
 		};
 	};
-};
-
-&uart0 {
-	status = "okay";
 };
