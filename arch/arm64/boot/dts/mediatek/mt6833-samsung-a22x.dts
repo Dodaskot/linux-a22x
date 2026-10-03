@@ -19,6 +19,7 @@
 #include <dt-bindings/power/mediatek,mt6833-power.h>
 #include <dt-bindings/thermal/mediatek,lvts-thermal.h>
 #include <dt-bindings/thermal/thermal.h>
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/phy/phy.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
@@ -451,6 +452,23 @@
 			 * Only the SD card supplies are described; the other
 			 * MT6360 rails keep their bootloader state.
 			 */
+			/* rear flash: FLED1 (vendor: torch 37.5 mA, strobe 750 mA / 1.248 s) */
+			led-controller {
+				compatible = "mediatek,mt6360-led";
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				led@4 {
+					reg = <4>;
+					function = LED_FUNCTION_FLASH;
+					color = <LED_COLOR_ID_WHITE>;
+					function-enumerator = <1>;
+					led-max-microamp = <100000>;
+					flash-max-microamp = <750000>;
+					flash-max-timeout-us = <1248000>;
+				};
+			};
+
 			regulator {
 				compatible = "mediatek,mt6360-regulator";
 
@@ -604,6 +622,13 @@
 					regulator-max-microvolt = <1000000>;
 					regulator-ramp-delay = <5000>;
 					regulator-always-on;
+				};
+
+				/* vibration motor (vendor vib_vol index 11 = 3.0 V) */
+				mt6359_vibr_ldo_reg: ldo_vibr {
+					regulator-name = "vibr";
+					regulator-min-microvolt = <3000000>;
+					regulator-max-microvolt = <3000000>;
 				};
 
 				mt6359_vsram_md_ldo_reg: ldo_vsram_md {
@@ -1465,5 +1490,14 @@
 		pinctrl-7 = <&aud_gpio_i2s3_on_ml>;
 		pinctrl-8 = <&aud_gpio_i2s0_off_ml>;
 		pinctrl-9 = <&aud_gpio_i2s0_on_ml>;
+	};
+};
+
+/ {
+	vibrator {
+		compatible = "regulator-haptic";
+		haptic-supply = <&mt6359_vibr_ldo_reg>;
+		min-microvolt = <3000000>;
+		max-microvolt = <3000000>;
 	};
 };
