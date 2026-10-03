@@ -718,8 +718,7 @@ static const struct mtk_cpufreq_platform_data mt7988_platform_data = {
 
 /*
  * MT6833: limits from the vendor kernel (VSRAM 0.75..1.0 V, VSRAM - VPROC
- * 0.1..0.25 V). The LL cluster shares Vproc2 with the CCI, which is not
- * scaled yet, so its OPP table must keep Vproc2 high enough for the CCI.
+ * 0.1..0.25 V). The LITTLE cluster shares Vproc2 with the CCI.
  */
 static const struct mtk_cpufreq_platform_data mt6833_platform_data = {
 	.min_volt_shift = 100000,
@@ -727,7 +726,7 @@ static const struct mtk_cpufreq_platform_data mt6833_platform_data = {
 	.proc_max_volt = 1000000,
 	.sram_min_volt = 750000,
 	.sram_max_volt = 1000000,
-	.ccifreq_supported = false,
+	.ccifreq_supported = true,
 };
 
 static const struct mtk_cpufreq_platform_data mt8183_platform_data = {

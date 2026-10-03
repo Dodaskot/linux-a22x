@@ -602,8 +602,8 @@
  * CPU DVFS: Linux retunes the cluster PLLs itself (mediatek-cpufreq) instead
  * of the vendor CPUHVFS/MCUPM path. Tables are the vendor B20G level that
  * this device is built for (MTK_5GCM_PROJECT), with the unadjusted (pre-EEM)
- * voltages. LITTLE stops at 950 MHz / 0.725 V because the CCI (675 MHz,
- * needs 0.725 V) shares Vproc2 and is not scaled yet.
+ * voltages. The CCI shares Vproc2 with LITTLE and is scaled by
+ * mtk-cci-devfreq from the CPU OPPs' required-opps.
  */
 / {
 	mcusys: syscon@c53a000 {
@@ -612,63 +612,164 @@
 		#clock-cells = <1>;
 	};
 
+	/* CCI follows the busier cluster (vendor B20G "normal" CCI map) */
+	cci: cci {
+		compatible = "mediatek,mt6833-cci";
+		clocks = <&mcusys CLK_MCU_ARMPLL_BUS_SEL>, <&clk26m>;
+		clock-names = "cci", "intermediate";
+		operating-points-v2 = <&cci_opp>;
+		proc-supply = <&mt6359_vproc2_buck_reg>;
+		sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
+	};
+
+	cci_opp: opp-table-cci {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		cci_opp_450: opp-450000000 {
+			opp-hz = /bits/ 64 <450000000>;
+			opp-microvolt = <650000>;
+		};
+
+		cci_opp_506: opp-506000000 {
+			opp-hz = /bits/ 64 <506000000>;
+			opp-microvolt = <668750>;
+		};
+
+		cci_opp_562: opp-562000000 {
+			opp-hz = /bits/ 64 <562000000>;
+			opp-microvolt = <687500>;
+		};
+
+		cci_opp_618: opp-618000000 {
+			opp-hz = /bits/ 64 <618000000>;
+			opp-microvolt = <706250>;
+		};
+
+		cci_opp_675: opp-675000000 {
+			opp-hz = /bits/ 64 <675000000>;
+			opp-microvolt = <725000>;
+		};
+
+		cci_opp_750: opp-750000000 {
+			opp-hz = /bits/ 64 <750000000>;
+			opp-microvolt = <750000>;
+		};
+
+		cci_opp_825: opp-825000000 {
+			opp-hz = /bits/ 64 <825000000>;
+			opp-microvolt = <775000>;
+		};
+
+		cci_opp_900: opp-900000000 {
+			opp-hz = /bits/ 64 <900000000>;
+			opp-microvolt = <800000>;
+		};
+
+		cci_opp_975: opp-975000000 {
+			opp-hz = /bits/ 64 <975000000>;
+			opp-microvolt = <825000>;
+		};
+	};
+
 	cluster0_opp: opp-table-cluster0 {
 		compatible = "operating-points-v2";
 		opp-shared;
 
+		opp-500000000 {
+			opp-hz = /bits/ 64 <500000000>;
+			opp-microvolt = <650000>;
+			required-opps = <&cci_opp_450>;
+		};
+
+		opp-620000000 {
+			opp-hz = /bits/ 64 <620000000>;
+			opp-microvolt = <650000>;
+			required-opps = <&cci_opp_450>;
+		};
+
+		opp-675000000 {
+			opp-hz = /bits/ 64 <675000000>;
+			opp-microvolt = <662500>;
+			required-opps = <&cci_opp_450>;
+		};
+
+		opp-730000000 {
+			opp-hz = /bits/ 64 <730000000>;
+			opp-microvolt = <675000>;
+			required-opps = <&cci_opp_450>;
+		};
+
+		opp-840000000 {
+			opp-hz = /bits/ 64 <840000000>;
+			opp-microvolt = <700000>;
+			required-opps = <&cci_opp_450>;
+		};
+
 		opp-950000000 {
 			opp-hz = /bits/ 64 <950000000>;
 			opp-microvolt = <725000>;
+			required-opps = <&cci_opp_450>;
 		};
 
 		opp-1032000000 {
 			opp-hz = /bits/ 64 <1032000000>;
 			opp-microvolt = <743750>;
+			required-opps = <&cci_opp_506>;
 		};
 
 		opp-1115000000 {
 			opp-hz = /bits/ 64 <1115000000>;
 			opp-microvolt = <762500>;
+			required-opps = <&cci_opp_562>;
 		};
 
 		opp-1280000000 {
 			opp-hz = /bits/ 64 <1280000000>;
 			opp-microvolt = <800000>;
+			required-opps = <&cci_opp_618>;
 		};
 
 		opp-1390000000 {
 			opp-hz = /bits/ 64 <1390000000>;
 			opp-microvolt = <825000>;
+			required-opps = <&cci_opp_675>;
 		};
 
 		opp-1500000000 {
 			opp-hz = /bits/ 64 <1500000000>;
 			opp-microvolt = <850000>;
+			required-opps = <&cci_opp_750>;
 		};
 
 		opp-1645000000 {
 			opp-hz = /bits/ 64 <1645000000>;
 			opp-microvolt = <893750>;
+			required-opps = <&cci_opp_825>;
 		};
 
 		opp-1750000000 {
 			opp-hz = /bits/ 64 <1750000000>;
 			opp-microvolt = <925000>;
+			required-opps = <&cci_opp_900>;
 		};
 
 		opp-1812000000 {
 			opp-hz = /bits/ 64 <1812000000>;
 			opp-microvolt = <943750>;
+			required-opps = <&cci_opp_900>;
 		};
 
 		opp-1916000000 {
 			opp-hz = /bits/ 64 <1916000000>;
 			opp-microvolt = <975000>;
+			required-opps = <&cci_opp_975>;
 		};
 
 		opp-2000000000 {
 			opp-hz = /bits/ 64 <2000000000>;
 			opp-microvolt = <1000000>;
+			required-opps = <&cci_opp_975>;
 		};
 	};
 
@@ -679,81 +780,97 @@
 		opp-725000000 {
 			opp-hz = /bits/ 64 <725000000>;
 			opp-microvolt = <650000>;
+			required-opps = <&cci_opp_450>;
 		};
 
 		opp-840000000 {
 			opp-hz = /bits/ 64 <840000000>;
 			opp-microvolt = <681250>;
+			required-opps = <&cci_opp_450>;
 		};
 
 		opp-898000000 {
 			opp-hz = /bits/ 64 <898000000>;
 			opp-microvolt = <700000>;
+			required-opps = <&cci_opp_450>;
 		};
 
 		opp-985000000 {
 			opp-hz = /bits/ 64 <985000000>;
 			opp-microvolt = <725000>;
+			required-opps = <&cci_opp_506>;
 		};
 
 		opp-1042000000 {
 			opp-hz = /bits/ 64 <1042000000>;
 			opp-microvolt = <737500>;
+			required-opps = <&cci_opp_506>;
 		};
 
 		opp-1129000000 {
 			opp-hz = /bits/ 64 <1129000000>;
 			opp-microvolt = <756250>;
+			required-opps = <&cci_opp_562>;
 		};
 
 		opp-1274000000 {
 			opp-hz = /bits/ 64 <1274000000>;
 			opp-microvolt = <800000>;
+			required-opps = <&cci_opp_618>;
 		};
 
 		opp-1418000000 {
 			opp-hz = /bits/ 64 <1418000000>;
 			opp-microvolt = <843750>;
+			required-opps = <&cci_opp_675>;
 		};
 
 		opp-1534000000 {
 			opp-hz = /bits/ 64 <1534000000>;
 			opp-microvolt = <875000>;
+			required-opps = <&cci_opp_750>;
 		};
 
 		opp-1650000000 {
 			opp-hz = /bits/ 64 <1650000000>;
 			opp-microvolt = <906250>;
+			required-opps = <&cci_opp_825>;
 		};
 
 		opp-1720000000 {
 			opp-hz = /bits/ 64 <1720000000>;
 			opp-microvolt = <925000>;
+			required-opps = <&cci_opp_825>;
 		};
 
 		opp-1790000000 {
 			opp-hz = /bits/ 64 <1790000000>;
 			opp-microvolt = <943750>;
+			required-opps = <&cci_opp_900>;
 		};
 
 		opp-1836000000 {
 			opp-hz = /bits/ 64 <1836000000>;
 			opp-microvolt = <950000>;
+			required-opps = <&cci_opp_900>;
 		};
 
 		opp-1906000000 {
 			opp-hz = /bits/ 64 <1906000000>;
 			opp-microvolt = <968750>;
+			required-opps = <&cci_opp_975>;
 		};
 
 		opp-1953000000 {
 			opp-hz = /bits/ 64 <1953000000>;
 			opp-microvolt = <981250>;
+			required-opps = <&cci_opp_975>;
 		};
 
 		opp-2000000000 {
 			opp-hz = /bits/ 64 <2000000000>;
 			opp-microvolt = <993750>;
+			required-opps = <&cci_opp_975>;
 		};
 	};
 };
@@ -763,6 +880,7 @@
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster0_opp>;
 	#cooling-cells = <2>;
+	mediatek,cci = <&cci>;
 	proc-supply = <&mt6359_vproc2_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
 };
@@ -772,6 +890,7 @@
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster0_opp>;
 	#cooling-cells = <2>;
+	mediatek,cci = <&cci>;
 	proc-supply = <&mt6359_vproc2_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
 };
@@ -781,6 +900,7 @@
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster0_opp>;
 	#cooling-cells = <2>;
+	mediatek,cci = <&cci>;
 	proc-supply = <&mt6359_vproc2_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
 };
@@ -790,6 +910,7 @@
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster0_opp>;
 	#cooling-cells = <2>;
+	mediatek,cci = <&cci>;
 	proc-supply = <&mt6359_vproc2_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
 };
@@ -799,6 +920,7 @@
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster0_opp>;
 	#cooling-cells = <2>;
+	mediatek,cci = <&cci>;
 	proc-supply = <&mt6359_vproc2_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
 };
@@ -808,6 +930,7 @@
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster0_opp>;
 	#cooling-cells = <2>;
+	mediatek,cci = <&cci>;
 	proc-supply = <&mt6359_vproc2_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
 };
@@ -817,6 +940,7 @@
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster1_opp>;
 	#cooling-cells = <2>;
+	mediatek,cci = <&cci>;
 	proc-supply = <&mt6359_vgpu11_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc1_ldo_reg>;
 };
@@ -826,6 +950,7 @@
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster1_opp>;
 	#cooling-cells = <2>;
+	mediatek,cci = <&cci>;
 	proc-supply = <&mt6359_vgpu11_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc1_ldo_reg>;
 };
