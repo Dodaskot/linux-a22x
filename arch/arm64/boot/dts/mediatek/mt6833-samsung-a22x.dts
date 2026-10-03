@@ -1307,7 +1307,7 @@
 				 <&topckgen CLK_TOP_APLL12_CK_DIV6>,
 				 <&topckgen CLK_TOP_APLL12_CK_DIV7>,
 				 <&topckgen CLK_TOP_AUDIO_H_SEL>,
-				 <&clk26m>;
+				 <&topckgen CLK_TOP_TCK_26M_MX9>;
 			clock-names = "aud_afe_clk", "aud_dac_clk",
 				      "aud_dac_predis_clk", "aud_adc_clk",
 				      "aud_adda6_adc_clk", "aud_apll22m_clk",
