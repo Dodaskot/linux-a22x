@@ -296,6 +296,14 @@ config BACKLIGHT_MAX8925
 	  If you have a LCD backlight connected to the WLED output of MAX8925
 	  WLED output, say Y here to enable this driver.
 
+config BACKLIGHT_MTK_DSI_VM
+	tristate "MediaTek DSI video-mode command backlight"
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	help
+	  Panel brightness (DCS 0x51) sent as MediaTek DSI "VM commands" on a
+	  display pipeline left running by the bootloader, e.g. while only
+	  simple-framebuffer is available.
+
 config BACKLIGHT_MT6370
 	tristate "MediaTek MT6370 Backlight Driver"
 	depends on MFD_MT6370

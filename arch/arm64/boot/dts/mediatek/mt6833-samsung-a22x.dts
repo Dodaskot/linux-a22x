@@ -376,3 +376,12 @@
 		};
 	};
 };
+
+/ {
+	/* Panel brightness via DCS 0x51 on the LK-initialised DSI0 (video mode). */
+	backlight: backlight@14013000 {
+		compatible = "mediatek,dsi-vm-backlight";
+		reg = <0 0x14013000 0 0x1000>;
+		default-brightness-level = <200>;
+	};
+};
