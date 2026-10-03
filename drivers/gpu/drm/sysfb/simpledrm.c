@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include <linux/aperture.h>
+#include <linux/backlight.h>
 #include <linux/clk.h>
 #include <linux/minmax.h>
 #include <linux/of_address.h>
@@ -206,6 +207,9 @@ simplefb_get_memory_of(struct drm_device *dev, struct device_node *of_node)
 
 struct simpledrm_device {
 	struct drm_sysfb_device sysfb;
+
+	/* optional panel backlight, switched with the CRTC (DPMS) */
+	struct backlight_device *backlight;
 
 	/* clocks */
 #if defined CONFIG_OF && defined CONFIG_COMMON_CLK
@@ -562,8 +566,33 @@ static const struct drm_plane_funcs simpledrm_primary_plane_funcs = {
 	.destroy = drm_plane_cleanup,
 };
 
+static struct simpledrm_device *simpledrm_device_of_dev(struct drm_device *dev)
+{
+	return container_of(dev, struct simpledrm_device, sysfb.dev);
+}
+
+static void simpledrm_crtc_helper_atomic_enable(struct drm_crtc *crtc,
+						struct drm_atomic_commit *state)
+{
+	struct simpledrm_device *sdev = simpledrm_device_of_dev(crtc->dev);
+
+	if (sdev->backlight)
+		backlight_enable(sdev->backlight);
+}
+
+static void simpledrm_crtc_helper_atomic_disable(struct drm_crtc *crtc,
+						 struct drm_atomic_commit *state)
+{
+	struct simpledrm_device *sdev = simpledrm_device_of_dev(crtc->dev);
+
+	if (sdev->backlight)
+		backlight_disable(sdev->backlight);
+}
+
 static const struct drm_crtc_helper_funcs simpledrm_crtc_helper_funcs = {
 	DRM_SYSFB_CRTC_HELPER_FUNCS,
+	.atomic_enable = simpledrm_crtc_helper_atomic_enable,
+	.atomic_disable = simpledrm_crtc_helper_atomic_disable,
 };
 
 static const struct drm_crtc_funcs simpledrm_crtc_funcs = {
@@ -633,6 +662,14 @@ static struct simpledrm_device *simpledrm_device_create(struct drm_driver *drv,
 	ret = simpledrm_device_attach_genpd(sdev);
 	if (ret)
 		return ERR_PTR(ret);
+	if (IS_REACHABLE(CONFIG_BACKLIGHT_CLASS_DEVICE) && of_node) {
+		sdev->backlight = devm_of_find_backlight(&pdev->dev);
+		if (IS_ERR(sdev->backlight)) {
+			if (PTR_ERR(sdev->backlight) == -EPROBE_DEFER)
+				return ERR_CAST(sdev->backlight);
+			sdev->backlight = NULL;
+		}
+	}
 
 	if (pd) {
 		width = simplefb_get_width_pd(dev, pd);

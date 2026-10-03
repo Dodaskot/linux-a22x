@@ -45,6 +45,7 @@
 			height = <2408>;
 			stride = <(1088 * 4)>;
 			format = "a8r8g8b8";
+			backlight = <&backlight>;
 		};
 	};
 
@@ -99,6 +100,13 @@
 			pins-bus {
 				pinmux = <PINMUX_GPIO107__FUNC_SCL5>,
 					 <PINMUX_GPIO108__FUNC_SDA5>;
+			};
+		};
+
+		keypad_pins: keypad-pins {
+			pins-cols {
+				pinmux = <PINMUX_GPIO79__FUNC_KPCOL0>,
+					 <PINMUX_GPIO80__FUNC_KPCOL1>;
 			};
 		};
 
@@ -383,5 +391,23 @@
 		compatible = "mediatek,dsi-vm-backlight";
 		reg = <0 0x14013000 0 0x1000>;
 		default-brightness-level = <200>;
+	};
+};
+
+/ {
+	/* SoC keypad: only volume-up (stock hw map index 1 = row 0, col 1). */
+	keypad@10010000 {
+		compatible = "mediatek,mt6833-keypad", "mediatek,mt6779-keypad";
+		reg = <0 0x10010000 0 0x1000>;
+		interrupts = <0 74 IRQ_TYPE_EDGE_RISING>;
+		clocks = <&uart_clk>;
+		clock-names = "kpd";
+		pinctrl-names = "default";
+		pinctrl-0 = <&keypad_pins>;
+		linux,keymap = <MATRIX_KEY(0x00, 0x01, KEY_VOLUMEUP)>;
+		keypad,num-rows = <1>;
+		keypad,num-columns = <2>;
+		debounce-delay-ms = <32>;
+		wakeup-source;
 	};
 };
