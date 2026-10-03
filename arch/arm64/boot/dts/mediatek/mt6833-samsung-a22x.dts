@@ -1329,8 +1329,11 @@
 		/delete-property/ mediatek,audio-codec;
 		/delete-property/ mtk_spk_i2s_out;
 		/delete-property/ mtk_spk_i2s_in;
-		/delete-node/ mediatek,speaker-codec;
+		/delete-property/ si,sia81xx-max-num;
+		/delete-property/ si,sia81xx-aux-devs;
+		/delete-property/ si,sia81xx-aux-devs-prefix;
 		compatible = "mediatek,mt6833-mt6359-sound";
+		status = "okay";
 		mediatek,platform = <&afe_ml>;
 		pinctrl-names = "aud_clk_mosi_off", "aud_clk_mosi_on", "aud_dat_mosi_off", "aud_dat_mosi_on", "aud_dat_miso_off", "aud_dat_miso_on", "aud_gpio_i2s3_off", "aud_gpio_i2s3_on", "aud_gpio_i2s0_off", "aud_gpio_i2s0_on";
 			pinctrl-0 = <&aud_clk_mosi_off_ml>;
