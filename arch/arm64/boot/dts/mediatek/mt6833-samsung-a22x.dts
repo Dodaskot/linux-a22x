@@ -436,9 +436,10 @@
 };
 
 / {
-	infracfg_nao: syscon@1020e000 {
-		compatible = "mediatek,mt6833-infracfg-nao", "syscon";
-		reg = <0 0x1020e000 0 0x1000>;
+	/* "infra_pdn" in the vendor kernel: holds the MFG1 AXI way-enable */
+	infra_pdn: syscon@10215000 {
+		compatible = "mediatek,mt6833-infra-pdn", "syscon";
+		reg = <0 0x10215000 0 0x1000>;
 	};
 
 	scpsys_ml: syscon@10006000 {
@@ -466,7 +467,7 @@
 					clock-names = "mfg", "alt";
 					domain-supply = <&mt6359_vsram_md_ldo_reg>;
 					mediatek,infracfg = <&infracfg_ao>;
-					mediatek,infracfg-nao = <&infracfg_nao>;
+					mediatek,infracfg-nao = <&infra_pdn>;
 					#address-cells = <1>;
 					#size-cells = <0>;
 					#power-domain-cells = <1>;

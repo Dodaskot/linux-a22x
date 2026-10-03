@@ -4,8 +4,9 @@
  *
  * The SPM MFG control/status layout and the MFG1 bus protection masks are
  * the same as MT8192; MT6833 additionally gates the MFG1 AXI "way" in
- * INFRA_NAO (0x1020e000 + 0x4c, bit 11), as done by the Samsung SM-A226B
- * kernel (clk-mt6833-pg.c).
+ * infra_pdn (0x10215000 + 0x4c, bit 11; bit 12 must stay set), as done by
+ * the Samsung SM-A226B kernel (clk-mt6833-pg.c). That register is its own
+ * status: closing the way has no ack, opening it reads back bit 11.
  */
 #ifndef __SOC_MEDIATEK_MT6833_PM_DOMAINS_H
 #define __SOC_MEDIATEK_MT6833_PM_DOMAINS_H
@@ -48,7 +49,8 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6833[] = {
 				      MT6833_INFRA_NAO_MFG1_WAY_EN,
 				      MT6833_INFRA_NAO_MFG1_WAY_EN_MASK,
 				      MT6833_INFRA_NAO_MFG1_WAY_EN,
-				      BUS_PROT_INVERTED | BUS_PROT_REG_UPDATE),
+				      BUS_PROT_INVERTED | BUS_PROT_REG_UPDATE |
+				      BUS_PROT_IGNORE_CLR_ACK),
 			BUS_PROT_WR(INFRA,
 				    MT8192_TOP_AXI_PROT_EN_1_MFG1,
 				    MT8192_TOP_AXI_PROT_EN_1_SET,
