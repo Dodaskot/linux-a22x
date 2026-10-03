@@ -834,8 +834,14 @@ static struct simpledrm_device *simpledrm_device_create(struct drm_driver *drv,
 	/* Connector */
 
 	connector = &sdev->connector;
+	/*
+	 * A framebuffer with its own panel backlight is the built-in display;
+	 * report it as such so compositors drive the backlight instead of
+	 * dimming the image. The firmware-set mode is DSI on these phones.
+	 */
 	ret = drm_connector_init(dev, connector, &simpledrm_connector_funcs,
-				 DRM_MODE_CONNECTOR_Unknown);
+				 sdev->backlight ? DRM_MODE_CONNECTOR_DSI :
+						   DRM_MODE_CONNECTOR_Unknown);
 	if (ret)
 		return ERR_PTR(ret);
 	drm_connector_helper_add(connector, &simpledrm_connector_helper_funcs);
