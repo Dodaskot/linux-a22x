@@ -548,6 +548,8 @@
 	backlight: backlight@14013000 {
 		compatible = "mediatek,dsi-vm-backlight";
 		reg = <0 0x14013000 0 0x1000>;
+		/* BCTRL | DD | BL, as the vendor panel driver sets it */
+		mediatek,wrctrld = <0x2c>;
 		default-brightness-level = <200>;
 	};
 };

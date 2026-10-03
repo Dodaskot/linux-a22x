@@ -31,6 +31,7 @@
 
 #define MIPI_DCS_SHORT_WRITE_PARAM	0x15
 #define DCS_SET_DISPLAY_BRIGHTNESS	0x51
+#define DCS_WRITE_CONTROL_DISPLAY	0x53
 
 struct mtk_dsi_vm_bl {
 	void __iomem *regs;
@@ -106,6 +107,18 @@ static int mtk_dsi_vm_bl_probe(struct platform_device *pdev)
 			     &props.brightness);
 	if (!of_property_read_u32(dev->of_node, "max-brightness", &val))
 		props.max_brightness = val;
+
+	/*
+	 * Some panels (e.g. the SM-A226B Himax TDDI) only drive their LED PWM
+	 * output when BCTRL is set in WRCTRLD; otherwise 0x51 just scales the
+	 * pixel data and the LEDs stay at full power.
+	 */
+	if (!of_property_read_u32(dev->of_node, "mediatek,wrctrld", &val)) {
+		int ret = mtk_dsi_vm_bl_send(bl, DCS_WRITE_CONTROL_DISPLAY, val);
+
+		if (ret)
+			dev_warn(dev, "WRCTRLD write failed: %d\n", ret);
+	}
 
 	bd = devm_backlight_device_register(dev, dev_name(dev), dev, bl,
 					    &mtk_dsi_vm_bl_ops, &props);
