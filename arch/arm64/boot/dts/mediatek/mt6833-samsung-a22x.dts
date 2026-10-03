@@ -220,9 +220,14 @@
 			pins-spi {
 				pinmux = <PINMUX_GPIO31__FUNC_SPI2_CLK>,
 					 <PINMUX_GPIO32__FUNC_SPI2_CSB>,
-					 <PINMUX_GPIO33__FUNC_SPI2_MO>,
-					 <PINMUX_GPIO34__FUNC_SPI2_MI>;
+					 <PINMUX_GPIO33__FUNC_SPI2_MO>;
 				bias-disable;
+			};
+
+			pins-miso {
+				pinmux = <PINMUX_GPIO34__FUNC_SPI2_MI>;
+				input-enable;
+				bias-pull-up;
 			};
 		};
 
