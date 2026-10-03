@@ -94,6 +94,13 @@
 			};
 		};
 
+		i2c5_pins: i2c5-pins {
+			pins-bus {
+				pinmux = <PINMUX_GPIO107__FUNC_SCL5>,
+					 <PINMUX_GPIO108__FUNC_SDA5>;
+			};
+		};
+
 		mmc0_pins: mmc0-pins {
 			pins-bus {
 				pinmux = <PINMUX_GPIO65__FUNC_MSDC0_DSL>,
@@ -235,4 +242,45 @@
 
 &infracfg_ao {
 	status = "okay";
+};
+
+&imp_iic_wrap_w {
+	status = "okay";
+};
+
+/ {
+	/*
+	 * I2C5 with the MT6360 sub-PMIC (charger, ADC, LDOs, Type-C). A separate
+	 * node from the stock "i2c5": LK's dtbo overlay rewrites the children of
+	 * the stock one with downstream compatibles. The stock node stays off.
+	 */
+	i2c5_ml: i2c@11e01000 {
+		compatible = "mediatek,mt6833-i2c", "mediatek,mt8192-i2c";
+		reg = <0 0x11e01000 0 0x1000>,
+		      <0 0x10217500 0 0x80>;
+		interrupts = <0 117 4>;
+		clocks = <&imp_iic_wrap_w CLK_IMPW_AP_CLOCK_RO_I2C5>,
+			 <&infracfg_ao CLK_IFRAO_AP_DMA>;
+		clock-names = "main", "dma";
+		clock-div = <1>;
+		clock-frequency = <400000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2c5_pins>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		mt6360: pmic@34 {
+			compatible = "mediatek,mt6360";
+			reg = <0x34>;
+			interrupts-extended = <&pio_ml 10 IRQ_TYPE_EDGE_FALLING>;
+			interrupt-names = "IRQB";
+			interrupt-controller;
+			#interrupt-cells = <1>;
+
+			mt6360_adc: adc {
+				compatible = "mediatek,mt6360-adc";
+				#io-channel-cells = <1>;
+			};
+		};
+	};
 };

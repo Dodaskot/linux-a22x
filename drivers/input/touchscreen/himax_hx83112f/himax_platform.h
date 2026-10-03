@@ -21,7 +21,7 @@
 extern struct device *g_device;
 
 #define D(x...) dev_dbg(g_device, "[HXTP] " x)
-#define I(x...) dev_info(g_device, "[HXTP] " x)
+#define I(x...) dev_dbg(g_device, "[HXTP] " x)
 #define W(x...) dev_warn(g_device, "[HXTP] " x)
 #define E(x...) dev_err(g_device, "[HXTP] " x)
 #define DIF(x...) \
