@@ -623,11 +623,11 @@
 					regulator-always-on;
 				};
 
-				/* vibration motor (vendor vib_vol index 11 = 3.0 V) */
+				/* vibration motor (vendor 3.0 V; 3.3 V for a stronger buzz) */
 				mt6359_vibr_ldo_reg: ldo_vibr {
 					regulator-name = "vibr";
-					regulator-min-microvolt = <3000000>;
-					regulator-max-microvolt = <3000000>;
+					regulator-min-microvolt = <3300000>;
+					regulator-max-microvolt = <3300000>;
 				};
 
 				mt6359_vsram_md_ldo_reg: ldo_vsram_md {
@@ -1496,7 +1496,7 @@
 	vibrator {
 		compatible = "regulator-haptic";
 		haptic-supply = <&mt6359_vibr_ldo_reg>;
-		min-microvolt = <3000000>;
-		max-microvolt = <3000000>;
+		min-microvolt = <3300000>;
+		max-microvolt = <3300000>;
 	};
 };
