@@ -462,7 +462,6 @@
 					reg = <4>;
 					function = LED_FUNCTION_FLASH;
 					color = <LED_COLOR_ID_WHITE>;
-					function-enumerator = <1>;
 					led-max-microamp = <100000>;
 					flash-max-microamp = <750000>;
 					flash-max-timeout-us = <1248000>;
