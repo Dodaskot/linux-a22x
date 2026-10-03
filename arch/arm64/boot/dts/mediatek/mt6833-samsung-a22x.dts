@@ -18,6 +18,7 @@
 #include <dt-bindings/clock/mt6833-clk.h>
 #include <dt-bindings/phy/phy.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/pinctrl/mt6833-pinfunc.h>
 #include "mt6833-samsung-a22x-lk-compat.dtsi"
@@ -331,5 +332,47 @@
 		io-channel-names = "voltage", "current";
 		monitored-battery = <&battery>;
 		power-supplies = <&mt6360_chg>;
+	};
+};
+
+/ {
+	/*
+	 * PMIC wrapper + MT6359 main PMIC. Separate node name from the stock
+	 * "pwrap@10026000" (kept disabled) so the two do not get merged.
+	 * The pwrap is already initialised by the bootloader.
+	 */
+	pmic-wrapper@10026000 {
+		compatible = "mediatek,mt6833-pwrap";
+		reg = <0 0x10026000 0 0x1000>;
+		reg-names = "pwrap";
+		interrupts = <0 220 4>;
+		clocks = <&infracfg_ao CLK_IFRAO_PMIC_AP>,
+			 <&infracfg_ao CLK_IFRAO_PMIC_TMR>;
+		clock-names = "spi", "wrap";
+
+		mt6359: pmic {
+			compatible = "mediatek,mt6359";
+			interrupts-extended = <&pio_ml 118 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+
+			rtc {
+				compatible = "mediatek,mt6358-rtc";
+			};
+
+			keys {
+				compatible = "mediatek,mt6359-keys";
+
+				power-key {
+					linux,keycodes = <KEY_POWER>;
+					wakeup-source;
+				};
+
+				/* Wired to the volume-down button on SM-A226B. */
+				home-key {
+					linux,keycodes = <KEY_VOLUMEDOWN>;
+				};
+			};
+		};
 	};
 };
