@@ -284,3 +284,45 @@
 		};
 	};
 };
+
+/ {
+	/*
+	 * Samsung EB-BA226ABY (5000 mAh). OCV curve resampled from the stock
+	 * MTK GM3.0 profile (bat_gm30, battery0_profile_t1, 25 degC).
+	 */
+	battery: battery {
+		compatible = "simple-battery";
+		charge-full-design-microamp-hours = <5000000>;
+		voltage-min-design-microvolt = <3400000>;
+		voltage-max-design-microvolt = <4400000>;
+		ocv-capacity-celsius = <25>;
+		ocv-capacity-table-0 = <4357000 100>,
+						<4280721 95>,
+						<4221383 90>,
+						<4165774 85>,
+						<4110504 80>,
+						<4070075 75>,
+						<3996095 70>,
+						<3963975 65>,
+						<3931597 60>,
+						<3880589 55>,
+						<3842700 50>,
+						<3819808 45>,
+						<3802441 40>,
+						<3787965 35>,
+						<3776921 30>,
+						<3762025 25>,
+						<3743598 20>,
+						<3716495 15>,
+						<3691341 10>,
+						<3650438 5>,
+						<3400000 0>;
+	};
+
+	adc-battery {
+		compatible = "adc-battery";
+		io-channels = <&mt6360_adc 4>, <&mt6360_adc 6>;
+		io-channel-names = "voltage", "current";
+		monitored-battery = <&battery>;
+	};
+};

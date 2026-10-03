@@ -152,11 +152,14 @@ static int mt6360_adc_read_scale(struct mt6360_adc_data *mad, int channel, int *
 	case MT6360_CHAN_CHG_VDDP:
 	case MT6360_CHAN_VREF_TS:
 	case MT6360_CHAN_TS:
+		/* 1.25 mV per LSB (IIO voltages are in mV) */
 		*val = 1250;
-		return IIO_VAL_INT;
+		*val2 = 1000;
+		return IIO_VAL_FRACTIONAL;
 	case MT6360_CHAN_VBUSDIV5:
 		*val = 6250;
-		return IIO_VAL_INT;
+		*val2 = 1000;
+		return IIO_VAL_FRACTIONAL;
 	case MT6360_CHAN_VBUSDIV2:
 	case MT6360_CHAN_IBUS:
 	case MT6360_CHAN_IBAT:
@@ -174,11 +177,13 @@ static int mt6360_adc_read_scale(struct mt6360_adc_data *mad, int channel, int *
 				*val = 1900;
 		}
 
-		return IIO_VAL_INT;
-	case MT6360_CHAN_TEMP_JC:
-		*val = 105;
-		*val2 = 100;
+		/* uV / uA per LSB -> mV / mA */
+		*val2 = 1000;
 		return IIO_VAL_FRACTIONAL;
+	case MT6360_CHAN_TEMP_JC:
+		/* 1.05 degC per LSB, IIO temperatures are in milli degC */
+		*val = 1050;
+		return IIO_VAL_INT;
 	}
 
 	return -EINVAL;

@@ -48,6 +48,7 @@ struct gab {
 	struct delayed_work bat_work;
 	int status;
 	struct gpio_desc *charge_finished;
+	struct power_supply_battery_info *info;
 };
 
 static struct gab *to_generic_bat(struct power_supply *psy)
@@ -64,6 +65,8 @@ static void gab_ext_power_changed(struct power_supply *psy)
 
 static const enum power_supply_property gab_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
+	POWER_SUPPLY_PROP_CAPACITY,
+	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
 };
 
 /*
@@ -106,6 +109,23 @@ static int gab_get_property(struct power_supply *psy,
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
 		val->intval = adc_bat->status;
+		return 0;
+	case POWER_SUPPLY_PROP_CAPACITY: {
+		int uv, ret;
+
+		/* Estimate from the monitored battery's OCV table, if any. */
+		if (!adc_bat->info || !adc_bat->channel[GAB_VOLTAGE])
+			return -ENODATA;
+		ret = gab_read_channel(adc_bat, GAB_VOLTAGE, &uv);
+		if (ret < 0)
+			return ret;
+		val->intval = power_supply_batinfo_ocv2cap(adc_bat->info, uv, 25);
+		return val->intval < 0 ? -ENODATA : 0;
+	}
+	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
+		if (!adc_bat->info || adc_bat->info->charge_full_design_uah < 0)
+			return -ENODATA;
+		val->intval = adc_bat->info->charge_full_design_uah;
 		return 0;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		return gab_read_channel(adc_bat, GAB_VOLTAGE, &val->intval);
@@ -232,6 +252,10 @@ static int gab_probe(struct platform_device *pdev)
 	adc_bat->psy = devm_power_supply_register(&pdev->dev, psy_desc, &psy_cfg);
 	if (IS_ERR(adc_bat->psy))
 		return dev_err_probe(&pdev->dev, PTR_ERR(adc_bat->psy), "Failed to register power-supply device\n");
+
+	/* Optional: OCV table / design capacity from "monitored-battery". */
+	if (power_supply_get_battery_info(adc_bat->psy, &adc_bat->info))
+		adc_bat->info = NULL;
 
 	ret = devm_delayed_work_autocancel(&pdev->dev, &adc_bat->bat_work, gab_work);
 	if (ret)
