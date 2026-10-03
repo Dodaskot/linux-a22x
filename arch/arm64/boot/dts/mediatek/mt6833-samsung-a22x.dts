@@ -16,6 +16,7 @@
 
 /dts-v1/;
 #include <dt-bindings/clock/mt6833-clk.h>
+#include <dt-bindings/power/mediatek,mt6833-power.h>
 #include <dt-bindings/phy/phy.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
@@ -368,6 +369,28 @@
 				compatible = "mediatek,mt6358-rtc";
 			};
 
+			/*
+			 * Only the GPU rails are described; every other MT6359
+			 * regulator stays as the bootloader configured it.
+			 * Bring-up: fixed safe voltages, no GPU DVFS yet
+			 * (Samsung table: 0.80 V signs off up to 1000 MHz).
+			 */
+			regulators {
+				mt6359_vproc1_buck_reg: buck_vproc1 {
+					regulator-name = "vgpu";
+					regulator-min-microvolt = <800000>;
+					regulator-max-microvolt = <800000>;
+					regulator-enable-ramp-delay = <200>;
+				};
+
+				mt6359_vsram_md_ldo_reg: ldo_vsram_md {
+					regulator-name = "vsram_gpu";
+					regulator-min-microvolt = <850000>;
+					regulator-max-microvolt = <850000>;
+					regulator-enable-ramp-delay = <240>;
+				};
+			};
+
 			keys {
 				compatible = "mediatek,mt6359-keys";
 
@@ -409,5 +432,78 @@
 		keypad,num-columns = <2>;
 		debounce-delay-ms = <32>;
 		wakeup-source;
+	};
+};
+
+/ {
+	infracfg_nao: syscon@1020e000 {
+		compatible = "mediatek,mt6833-infracfg-nao", "syscon";
+		reg = <0 0x1020e000 0 0x1000>;
+	};
+
+	scpsys_ml: syscon@10006000 {
+		compatible = "mediatek,mt6833-scpsys", "syscon", "simple-mfd";
+		reg = <0 0x10006000 0 0x1000>;
+
+		/* GPU (MFG) domains only; the others are left to the bootloader. */
+		spm: power-controller {
+			compatible = "mediatek,mt6833-power-controller";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			#power-domain-cells = <1>;
+
+			mfg0: power-domain@MT6833_POWER_DOMAIN_MFG0 {
+				reg = <MT6833_POWER_DOMAIN_MFG0>;
+				domain-supply = <&mt6359_vproc1_buck_reg>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				#power-domain-cells = <1>;
+
+				mfg1: power-domain@MT6833_POWER_DOMAIN_MFG1 {
+					reg = <MT6833_POWER_DOMAIN_MFG1>;
+					clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>,
+						 <&topckgen CLK_TOP_MFG_REF_SEL>;
+					clock-names = "mfg", "alt";
+					domain-supply = <&mt6359_vsram_md_ldo_reg>;
+					mediatek,infracfg = <&infracfg_ao>;
+					mediatek,infracfg-nao = <&infracfg_nao>;
+					#address-cells = <1>;
+					#size-cells = <0>;
+					#power-domain-cells = <1>;
+
+					power-domain@MT6833_POWER_DOMAIN_MFG2 {
+						reg = <MT6833_POWER_DOMAIN_MFG2>;
+						#power-domain-cells = <0>;
+					};
+
+					power-domain@MT6833_POWER_DOMAIN_MFG3 {
+						reg = <MT6833_POWER_DOMAIN_MFG3>;
+						#power-domain-cells = <0>;
+					};
+				};
+			};
+		};
+	};
+
+	mfgcfg_ml: clock-controller@13fbf000 {
+		compatible = "mediatek,mt6833-mfgcfg";
+		reg = <0 0x13fbf000 0 0x1000>;
+		/* registers only respond with the GPU top domain powered */
+		power-domains = <&spm MT6833_POWER_DOMAIN_MFG1>;
+		#clock-cells = <1>;
+	};
+
+	/* Mali-G57 MC2, same GPU configuration as MT8370 */
+	gpu: gpu@13000000 {
+		compatible = "mediatek,mt6833-mali", "mediatek,mt8370-mali",
+			     "arm,mali-valhall-jm";
+		reg = <0 0x13000000 0 0x4000>;
+		interrupts = <0 366 4>, <0 365 4>, <0 364 4>;
+		interrupt-names = "job", "mmu", "gpu";
+		clocks = <&mfgcfg_ml CLK_MFGCFG_BG3D>;
+		power-domains = <&spm MT6833_POWER_DOMAIN_MFG2>,
+				<&spm MT6833_POWER_DOMAIN_MFG3>;
+		power-domain-names = "core0", "core1";
+		mali-supply = <&mt6359_vproc1_buck_reg>;
 	};
 };
