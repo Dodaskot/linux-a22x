@@ -4,8 +4,9 @@
  *
  * The MT6833 AFE is register compatible with MT8192 and is driven by the
  * MT8192 AFE driver. This card is a reduced MT8192/MT6359 card: earpiece,
- * headset and microphones through MT6359 (ADDA), the loudspeaker amplifier
- * on I2S3 (with I/V sense on I2S0).
+ * headset and microphones through MT6359 (ADDA). The loudspeaker amplifier
+ * (an analog SIA8109 on the SM-A226B) hangs off the MT6359 headphone
+ * "Ext Spk Amp" outputs and is described in DT as an auxiliary device.
  *
  * MTKAIF calibration from mt8192-mt6359-rt1015-rt5682.c.
  */
@@ -348,22 +349,58 @@ static struct snd_soc_dai_link mt6833_mt6359_dai_links[] = {
 	},
 };
 
+static const struct snd_soc_dapm_widget mt6833_mt6359_widgets[] = {
+	SND_SOC_DAPM_SPK("Speaker", NULL),
+};
+
+static const struct snd_soc_dapm_route mt6833_mt6359_spk_routes[] = {
+	{ "Speaker Amp IN", NULL, "Headphone L Ext Spk Amp" },
+	{ "Speaker Amp IN", NULL, "Headphone R Ext Spk Amp" },
+	{ "Speaker", NULL, "Speaker Amp OUT" },
+};
+
+static const struct snd_kcontrol_new mt6833_mt6359_controls[] = {
+	SOC_DAPM_PIN_SWITCH("Speaker"),
+};
+
+static struct snd_soc_aux_dev mt6833_mt6359_aux_dev;
+static struct snd_soc_codec_conf mt6833_mt6359_codec_conf = {
+	.name_prefix = "Speaker Amp",
+};
+
 static struct snd_soc_card mt6833_mt6359_card = {
 	.driver_name = DRIVER_NAME,
 	.owner = THIS_MODULE,
 	.dai_link = mt6833_mt6359_dai_links,
 	.num_links = ARRAY_SIZE(mt6833_mt6359_dai_links),
+	.dapm_widgets = mt6833_mt6359_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(mt6833_mt6359_widgets),
+	.controls = mt6833_mt6359_controls,
+	.num_controls = ARRAY_SIZE(mt6833_mt6359_controls),
 };
 
 static int mt6833_mt6359_soc_card_probe(struct mtk_soc_card_data *soc_card_data,
 					bool legacy)
 {
 	struct snd_soc_card *card = soc_card_data->card_data->card;
+	struct device_node *amp;
 	int ret;
 
 	ret = mt8192_afe_gpio_init(card->dev);
 	if (ret)
 		return dev_err_probe(card->dev, ret, "%s init gpio error\n", __func__);
+
+	amp = of_parse_phandle(card->dev->of_node, "mediatek,speaker-amplifier", 0);
+	if (amp) {
+		mt6833_mt6359_aux_dev.dlc.of_node = amp;
+		mt6833_mt6359_codec_conf.dlc.of_node = amp;
+		card->aux_dev = &mt6833_mt6359_aux_dev;
+		card->num_aux_devs = 1;
+		card->codec_conf = &mt6833_mt6359_codec_conf;
+		card->num_configs = 1;
+		card->dapm_routes = mt6833_mt6359_spk_routes;
+		card->num_dapm_routes = ARRAY_SIZE(mt6833_mt6359_spk_routes);
+	}
 
 	return 0;
 }
