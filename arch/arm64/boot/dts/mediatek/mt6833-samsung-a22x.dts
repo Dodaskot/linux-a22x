@@ -480,9 +480,8 @@
 			/*
 			 * Only the GPU rails are described; every other MT6359
 			 * regulator stays as the bootloader configured it.
-			 * vgpu is scaled by the GPU OPP table; vsram_gpu stays
-			 * fixed above the highest vendor SRAM voltage used up
-			 * to 955 MHz (0.78125 V).
+			 * vgpu follows the GPU OPP table (fixed 0.78125 V for now,
+			 * see gpu_opp_table); vsram_gpu stays at 0.85 V.
 			 */
 			regulators {
 				mt6359_vproc1_buck_reg: buck_vproc1 {
@@ -535,8 +534,8 @@
 
 				mt6359_vsram_md_ldo_reg: ldo_vsram_md {
 					regulator-name = "vsram_gpu";
-					regulator-min-microvolt = <800000>;
-					regulator-max-microvolt = <800000>;
+					regulator-min-microvolt = <850000>;
+					regulator-max-microvolt = <850000>;
 					regulator-enable-ramp-delay = <240>;
 				};
 			};
@@ -673,8 +672,11 @@
 	};
 
 	/*
-	 * Subset of the Samsung/MediaTek MT6833 GPU table; each voltage is the
-	 * highest of the three chip segments (MT6833, MT6833M, MT6833T).
+	 * Frequencies from the Samsung/MediaTek MT6833 GPU table. The vendor
+	 * voltages (0.625 V and up) rely on EEMG calibration, which is not done
+	 * here: with them the GPU randomly hung or read garbage (job timeouts,
+	 * SLAVE/translation faults, about every second boot). A fixed 0.78125 V
+	 * (the 955 MHz voltage) with VSRAM 0.85 V was clean on every test boot.
 	 * The vendor table lists 1000/1068 MHz, but MFGPLL_CON1 ignores any
 	 * PCW above the 955 MHz setting on this chip (Dimensity 700 is rated
 	 * for 950 MHz), so the table stops there.
@@ -685,31 +687,31 @@
 
 		opp-390000000 {
 			opp-hz = /bits/ 64 <390000000>;
-			opp-microvolt = <625000>;
+			opp-microvolt = <781250>;
 		};
 		opp-467000000 {
 			opp-hz = /bits/ 64 <467000000>;
-			opp-microvolt = <631250>;
+			opp-microvolt = <781250>;
 		};
 		opp-545000000 {
 			opp-hz = /bits/ 64 <545000000>;
-			opp-microvolt = <637500>;
+			opp-microvolt = <781250>;
 		};
 		opp-622000000 {
 			opp-hz = /bits/ 64 <622000000>;
-			opp-microvolt = <643750>;
+			opp-microvolt = <781250>;
 		};
 		opp-700000000 {
 			opp-hz = /bits/ 64 <700000000>;
-			opp-microvolt = <650000>;
+			opp-microvolt = <781250>;
 		};
 		opp-790000000 {
 			opp-hz = /bits/ 64 <790000000>;
-			opp-microvolt = <700000>;
+			opp-microvolt = <781250>;
 		};
 		opp-880000000 {
 			opp-hz = /bits/ 64 <880000000>;
-			opp-microvolt = <750000>;
+			opp-microvolt = <781250>;
 		};
 		opp-955000000 {
 			opp-hz = /bits/ 64 <955000000>;
