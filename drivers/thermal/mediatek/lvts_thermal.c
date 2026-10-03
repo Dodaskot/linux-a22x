@@ -1470,7 +1470,7 @@ static int lvts_probe(struct platform_device *pdev)
 	if (IS_ERR(lvts_td->base))
 		return dev_err_probe(dev, PTR_ERR(lvts_td->base), "Failed to map io resource\n");
 
-	lvts_td->reset = devm_reset_control_get_by_index(dev, 0);
+	lvts_td->reset = devm_reset_control_get_optional_exclusive(dev, NULL);
 	if (IS_ERR(lvts_td->reset))
 		return dev_err_probe(dev, PTR_ERR(lvts_td->reset), "Failed to get reset control\n");
 
@@ -1780,6 +1780,65 @@ static const struct lvts_ctrl_data mt8192_lvts_mcu_data_ctrl[] = {
 		.offset = 0x200,
 		.mode = LVTS_MSR_FILTERED_MODE,
 	}
+};
+
+/*
+ * MT6833: one LVTS domain with four controllers (LITTLE, big, GPU/SoC/
+ * CONSYS, modem). Calibration words follow the vendor kernel: golden
+ * temperature in the top byte of efuse 0x1c0, then one 24-bit count per
+ * sensor from 0x1c4 in controller order.
+ */
+static const struct lvts_ctrl_data mt6833_lvts_ap_data_ctrl[] = {
+	{
+		.lvts_sensor = {
+			{ .dt_id = MT6833_AP_LITTLE0,
+			  .cal_offsets = { 0x04, 0x05, 0x06 } },
+			{ .dt_id = MT6833_AP_LITTLE1,
+			  .cal_offsets = { 0x08, 0x09, 0x0a } },
+			{ .dt_id = MT6833_AP_LITTLE2,
+			  .cal_offsets = { 0x0c, 0x0d, 0x0e } },
+			{ .dt_id = MT6833_AP_LITTLE3,
+			  .cal_offsets = { 0x10, 0x11, 0x12 } },
+		},
+		VALID_SENSOR_MAP(1, 1, 1, 1),
+		.offset = 0x0,
+	},
+	{
+		.lvts_sensor = {
+			{ .dt_id = MT6833_AP_BIG0,
+			  .cal_offsets = { 0x14, 0x15, 0x16 } },
+			{ .dt_id = MT6833_AP_BIG1,
+			  .cal_offsets = { 0x18, 0x19, 0x1a } },
+		},
+		VALID_SENSOR_MAP(1, 1, 0, 0),
+		.offset = 0x100,
+	},
+	{
+		.lvts_sensor = {
+			{ .dt_id = MT6833_AP_GPU0,
+			  .cal_offsets = { 0x1c, 0x1d, 0x1e } },
+			{ .dt_id = MT6833_AP_GPU1,
+			  .cal_offsets = { 0x20, 0x21, 0x22 } },
+			{ .dt_id = MT6833_AP_SOC,
+			  .cal_offsets = { 0x24, 0x25, 0x26 } },
+			{ .dt_id = MT6833_AP_CONSYS,
+			  .cal_offsets = { 0x28, 0x29, 0x2a } },
+		},
+		VALID_SENSOR_MAP(1, 1, 1, 1),
+		.offset = 0x200,
+	},
+	{
+		.lvts_sensor = {
+			{ .dt_id = MT6833_AP_MD0,
+			  .cal_offsets = { 0x2c, 0x2d, 0x2e } },
+			{ .dt_id = MT6833_AP_MD1,
+			  .cal_offsets = { 0x30, 0x31, 0x32 } },
+			{ .dt_id = MT6833_AP_MD2,
+			  .cal_offsets = { 0x34, 0x35, 0x36 } },
+		},
+		VALID_SENSOR_MAP(1, 1, 1, 0),
+		.offset = 0x300,
+	},
 };
 
 static const struct lvts_ctrl_data mt8192_lvts_ap_data_ctrl[] = {
@@ -2102,6 +2161,21 @@ static const struct lvts_data mt8192_lvts_mcu_data = {
 	.ops = &lvts_platform_ops_mt7988,
 };
 
+static const struct lvts_data mt6833_lvts_ap_data = {
+	.lvts_ctrl	= mt6833_lvts_ap_data_ctrl,
+	.conn_cmd	= default_conn_cmds,
+	.init_cmd	= default_init_cmds,
+	.num_lvts_ctrl	= ARRAY_SIZE(mt6833_lvts_ap_data_ctrl),
+	.num_conn_cmd	= ARRAY_SIZE(default_conn_cmds),
+	.num_init_cmd	= ARRAY_SIZE(default_init_cmds),
+	.temp_factor	= LVTS_COEFF_A_MT8195,
+	.temp_offset	= LVTS_COEFF_B_MT8195,
+	.gt_calib_bit_offset = 24,
+	.def_calibration = 35000,
+	.num_cal_offsets = LVTS_NUM_CAL_OFFSETS_MT7988,
+	.ops = &lvts_platform_ops_mt7988,
+};
+
 static const struct lvts_data mt8192_lvts_ap_data = {
 	.lvts_ctrl	= mt8192_lvts_ap_data_ctrl,
 	.conn_cmd	= default_conn_cmds,
@@ -2177,6 +2251,7 @@ static const struct of_device_id lvts_of_match[] = {
 	{ .compatible = "mediatek,mt8186-lvts", .data = &mt8186_lvts_data },
 	{ .compatible = "mediatek,mt8188-lvts-mcu", .data = &mt8188_lvts_mcu_data },
 	{ .compatible = "mediatek,mt8188-lvts-ap", .data = &mt8188_lvts_ap_data },
+	{ .compatible = "mediatek,mt6833-lvts-ap", .data = &mt6833_lvts_ap_data },
 	{ .compatible = "mediatek,mt8192-lvts-mcu", .data = &mt8192_lvts_mcu_data },
 	{ .compatible = "mediatek,mt8192-lvts-ap", .data = &mt8192_lvts_ap_data },
 	{ .compatible = "mediatek,mt8195-lvts-mcu", .data = &mt8195_lvts_mcu_data },

@@ -83,6 +83,20 @@
 #define MT8192_AP_MD1   15
 #define MT8192_AP_MD2   16
 
+#define MT6833_AP_LITTLE0	0
+#define MT6833_AP_LITTLE1	1
+#define MT6833_AP_LITTLE2	2
+#define MT6833_AP_LITTLE3	3
+#define MT6833_AP_BIG0		4
+#define MT6833_AP_BIG1		5
+#define MT6833_AP_GPU0		6
+#define MT6833_AP_GPU1		7
+#define MT6833_AP_SOC		8
+#define MT6833_AP_CONSYS	9
+#define MT6833_AP_MD0		10
+#define MT6833_AP_MD1		11
+#define MT6833_AP_MD2		12
+
 #define MT8196_MCU_MEDIUM_CPU6_0        0
 #define MT8196_MCU_MEDIUM_CPU6_1        1
 #define MT8196_MCU_DSU2                 2

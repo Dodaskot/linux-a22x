@@ -17,6 +17,8 @@
 /dts-v1/;
 #include <dt-bindings/clock/mt6833-clk.h>
 #include <dt-bindings/power/mediatek,mt6833-power.h>
+#include <dt-bindings/thermal/mediatek,lvts-thermal.h>
+#include <dt-bindings/thermal/thermal.h>
 #include <dt-bindings/phy/phy.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
@@ -547,6 +549,7 @@
 		power-domain-names = "core0", "core1";
 		mali-supply = <&mt6359_vproc1_buck_reg>;
 		operating-points-v2 = <&gpu_opp_table>;
+		#cooling-cells = <2>;
 	};
 
 	/*
@@ -759,6 +762,7 @@
 	clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster0_opp>;
+	#cooling-cells = <2>;
 	proc-supply = <&mt6359_vproc2_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
 };
@@ -767,6 +771,7 @@
 	clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster0_opp>;
+	#cooling-cells = <2>;
 	proc-supply = <&mt6359_vproc2_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
 };
@@ -775,6 +780,7 @@
 	clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster0_opp>;
+	#cooling-cells = <2>;
 	proc-supply = <&mt6359_vproc2_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
 };
@@ -783,6 +789,7 @@
 	clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster0_opp>;
+	#cooling-cells = <2>;
 	proc-supply = <&mt6359_vproc2_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
 };
@@ -791,6 +798,7 @@
 	clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster0_opp>;
+	#cooling-cells = <2>;
 	proc-supply = <&mt6359_vproc2_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
 };
@@ -799,6 +807,7 @@
 	clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster0_opp>;
+	#cooling-cells = <2>;
 	proc-supply = <&mt6359_vproc2_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
 };
@@ -807,6 +816,7 @@
 	clocks = <&mcusys CLK_MCU_ARMPLL_BL_SEL>, <&clk26m>;
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster1_opp>;
+	#cooling-cells = <2>;
 	proc-supply = <&mt6359_vgpu11_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc1_ldo_reg>;
 };
@@ -815,6 +825,186 @@
 	clocks = <&mcusys CLK_MCU_ARMPLL_BL_SEL>, <&clk26m>;
 	clock-names = "cpu", "intermediate";
 	operating-points-v2 = <&cluster1_opp>;
+	#cooling-cells = <2>;
 	proc-supply = <&mt6359_vgpu11_buck_reg>;
 	sram-supply = <&mt6359_vsram_proc1_ldo_reg>;
+};
+
+/*
+ * Thermal: LVTS sensors (vendor plan: LITTLE 1-0..1-3, big 2-0/2-1,
+ * GPU 3-0/3-1, SoC 3-2, CONSYS 3-3, modem 4-x) with the vendor CPU trip
+ * points: throttle from 85 C, harder from 95 C, shut down at 117 C.
+ */
+/ {
+	efuse_ml: efuse@11c10000 {
+		compatible = "mediatek,mt6833-efuse", "mediatek,efuse";
+		reg = <0 0x11c10000 0 0x1000>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		lvts_e_data1: data1@1c0 {
+			reg = <0x1c0 0x58>;
+		};
+	};
+
+	lvts: thermal-sensor@1100b000 {
+		compatible = "mediatek,mt6833-lvts-ap";
+		reg = <0 0x1100b000 0 0xc00>;
+		interrupts = <0 169 4>;
+		clocks = <&infracfg_ao CLK_IFRAO_THERM>;
+		nvmem-cells = <&lvts_e_data1>;
+		nvmem-cell-names = "lvts-calib-data-1";
+		#thermal-sensor-cells = <1>;
+	};
+
+	thermal-zones {
+		cpu-little-thermal {
+			polling-delay-passive = <100>;
+			polling-delay = <1000>;
+			thermal-sensors = <&lvts MT6833_AP_LITTLE1>;
+
+			trips {
+				little_alert: trip-alert {
+					temperature = <85000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				little_hot: trip-hot {
+					temperature = <95000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				little_crit: trip-crit {
+					temperature = <117000>;
+					hysteresis = <0>;
+					type = "hot";	/* critical once LVTS readings are validated */
+				};
+			};
+			cooling-maps {
+				map0 {
+					trip = <&little_alert>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+
+				map1 {
+					trip = <&little_hot>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
+		};
+
+		cpu-big-thermal {
+			polling-delay-passive = <100>;
+			polling-delay = <1000>;
+			thermal-sensors = <&lvts MT6833_AP_BIG1>;
+
+			trips {
+				big_alert: trip-alert {
+					temperature = <85000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				big_hot: trip-hot {
+					temperature = <95000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				big_crit: trip-crit {
+					temperature = <117000>;
+					hysteresis = <0>;
+					type = "hot";	/* critical once LVTS readings are validated */
+				};
+			};
+			cooling-maps {
+				map0 {
+					trip = <&big_alert>;
+					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+
+				map1 {
+					trip = <&big_hot>;
+					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
+		};
+
+		gpu-thermal {
+			polling-delay-passive = <100>;
+			polling-delay = <1000>;
+			thermal-sensors = <&lvts MT6833_AP_GPU1>;
+
+			trips {
+				gpu_alert: trip-alert {
+					temperature = <85000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				gpu_hot: trip-hot {
+					temperature = <95000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				gpu_crit: trip-crit {
+					temperature = <117000>;
+					hysteresis = <0>;
+					type = "hot";	/* critical once LVTS readings are validated */
+				};
+			};
+			cooling-maps {
+				map0 {
+					trip = <&gpu_alert>;
+					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+
+				map1 {
+					trip = <&gpu_hot>;
+					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
+		};
+
+		soc-thermal {
+			polling-delay-passive = <100>;
+			polling-delay = <1000>;
+			thermal-sensors = <&lvts MT6833_AP_SOC>;
+
+			trips {
+				soc_alert: trip-alert {
+					temperature = <85000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				soc_hot: trip-hot {
+					temperature = <95000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				soc_crit: trip-crit {
+					temperature = <117000>;
+					hysteresis = <0>;
+					type = "hot";	/* critical once LVTS readings are validated */
+				};
+			};
+		};
+	};
 };
