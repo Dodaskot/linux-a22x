@@ -879,7 +879,7 @@
 				little_crit: trip-crit {
 					temperature = <117000>;
 					hysteresis = <0>;
-					type = "hot";	/* critical once LVTS readings are validated */
+					type = "critical";
 				};
 			};
 			cooling-maps {
@@ -926,7 +926,7 @@
 				big_crit: trip-crit {
 					temperature = <117000>;
 					hysteresis = <0>;
-					type = "hot";	/* critical once LVTS readings are validated */
+					type = "critical";
 				};
 			};
 			cooling-maps {
@@ -965,7 +965,7 @@
 				gpu_crit: trip-crit {
 					temperature = <117000>;
 					hysteresis = <0>;
-					type = "hot";	/* critical once LVTS readings are validated */
+					type = "critical";
 				};
 			};
 			cooling-maps {
@@ -1002,7 +1002,7 @@
 				soc_crit: trip-crit {
 					temperature = <117000>;
 					hysteresis = <0>;
-					type = "hot";	/* critical once LVTS readings are validated */
+					type = "critical";
 				};
 			};
 		};
