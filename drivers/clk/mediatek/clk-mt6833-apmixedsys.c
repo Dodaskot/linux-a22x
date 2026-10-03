@@ -55,6 +55,16 @@
 			_pcw_reg, _pcw_shift, 0, 0, 0)
 
 static const struct mtk_pll_data plls[] = {
+	/*
+	 * CPU PLLs: left running by the bootloader, retuned only by
+	 * mediatek-cpufreq while the CPU mux is parked on clk26m.
+	 */
+	PLL_B(CLK_APMIXED_ARMPLL_LL, "armpll_ll", 0x0208, 0x0214, 0,
+	      PLL_AO, 0, 22, 0x020c, 24, 0, 0, 0, 0x020c, 0),
+	PLL_B(CLK_APMIXED_ARMPLL_BL0, "armpll_bl0", 0x0218, 0x0224, 0,
+	      PLL_AO, 0, 22, 0x021c, 24, 0, 0, 0, 0x021c, 0),
+	PLL_B(CLK_APMIXED_CCIPLL, "ccipll", 0x0258, 0x0264, 0,
+	      PLL_AO, 0, 22, 0x025c, 24, 0, 0, 0, 0x025c, 0),
 	PLL_B(CLK_APMIXED_MAINPLL, "mainpll", 0x0340, 0x034c, 0xff000000,
 	      HAVE_RST_BAR | PLL_AO, BIT(23), 22, 0x0344, 24, 0, 0, 0, 0x0344, 0),
 	PLL_B(CLK_APMIXED_UNIVPLL, "univpll", 0x0308, 0x0314, 0xff000000,

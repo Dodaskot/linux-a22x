@@ -680,5 +680,11 @@
 #define SCP_SYS_CAM_RAWB	15
 #define SCP_NR_SYSS	16
 
+/* MCUSYS (mainline addition, not in the vendor header) */
+#define CLK_MCU_ARMPLL_LL_SEL		0
+#define CLK_MCU_ARMPLL_BL_SEL		1
+#define CLK_MCU_ARMPLL_BUS_SEL		2
+#define CLK_MCU_NR_CLK			3
+
 #endif /* _DT_BINDINGS_CLK_MT6833_H */
 

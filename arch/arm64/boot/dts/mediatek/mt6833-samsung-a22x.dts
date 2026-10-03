@@ -384,6 +384,45 @@
 					regulator-enable-ramp-delay = <200>;
 				};
 
+				/*
+				 * CPU rails (vendor kernel: big = vgpu11 +
+				 * vsram_proc1, LITTLE + CCI = vproc2 +
+				 * vsram_proc2). Never switched off; the
+				 * ranges cover the bootloader setting so
+				 * nothing changes until cpufreq asks.
+				 */
+				mt6359_vgpu11_buck_reg: buck_vgpu11 {
+					regulator-name = "vproc_big";
+					regulator-min-microvolt = <600000>;
+					regulator-max-microvolt = <1000000>;
+					regulator-ramp-delay = <5000>;
+					regulator-always-on;
+				};
+
+				mt6359_vproc2_buck_reg: buck_vproc2 {
+					regulator-name = "vproc_little";
+					regulator-min-microvolt = <600000>;
+					regulator-max-microvolt = <1000000>;
+					regulator-ramp-delay = <5000>;
+					regulator-always-on;
+				};
+
+				mt6359_vsram_proc1_ldo_reg: ldo_vsram_proc1 {
+					regulator-name = "vsram_big";
+					regulator-min-microvolt = <750000>;
+					regulator-max-microvolt = <1000000>;
+					regulator-ramp-delay = <5000>;
+					regulator-always-on;
+				};
+
+				mt6359_vsram_proc2_ldo_reg: ldo_vsram_proc2 {
+					regulator-name = "vsram_little";
+					regulator-min-microvolt = <750000>;
+					regulator-max-microvolt = <1000000>;
+					regulator-ramp-delay = <5000>;
+					regulator-always-on;
+				};
+
 				mt6359_vsram_md_ldo_reg: ldo_vsram_md {
 					regulator-name = "vsram_gpu";
 					regulator-min-microvolt = <800000>;
@@ -554,4 +593,228 @@
 			opp-microvolt = <781250>;
 		};
 	};
+};
+
+/*
+ * CPU DVFS: Linux retunes the cluster PLLs itself (mediatek-cpufreq) instead
+ * of the vendor CPUHVFS/MCUPM path. Tables are the vendor B20G level that
+ * this device is built for (MTK_5GCM_PROJECT), with the unadjusted (pre-EEM)
+ * voltages. LITTLE stops at 950 MHz / 0.725 V because the CCI (675 MHz,
+ * needs 0.725 V) shares Vproc2 and is not scaled yet.
+ */
+/ {
+	mcusys: syscon@c53a000 {
+		compatible = "mediatek,mt6833-mcusys", "syscon";
+		reg = <0 0x0c53a000 0 0x1000>;
+		#clock-cells = <1>;
+	};
+
+	cluster0_opp: opp-table-cluster0 {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		opp-950000000 {
+			opp-hz = /bits/ 64 <950000000>;
+			opp-microvolt = <725000>;
+		};
+
+		opp-1032000000 {
+			opp-hz = /bits/ 64 <1032000000>;
+			opp-microvolt = <743750>;
+		};
+
+		opp-1115000000 {
+			opp-hz = /bits/ 64 <1115000000>;
+			opp-microvolt = <762500>;
+		};
+
+		opp-1280000000 {
+			opp-hz = /bits/ 64 <1280000000>;
+			opp-microvolt = <800000>;
+		};
+
+		opp-1390000000 {
+			opp-hz = /bits/ 64 <1390000000>;
+			opp-microvolt = <825000>;
+		};
+
+		opp-1500000000 {
+			opp-hz = /bits/ 64 <1500000000>;
+			opp-microvolt = <850000>;
+		};
+
+		opp-1645000000 {
+			opp-hz = /bits/ 64 <1645000000>;
+			opp-microvolt = <893750>;
+		};
+
+		opp-1750000000 {
+			opp-hz = /bits/ 64 <1750000000>;
+			opp-microvolt = <925000>;
+		};
+
+		opp-1812000000 {
+			opp-hz = /bits/ 64 <1812000000>;
+			opp-microvolt = <943750>;
+		};
+
+		opp-1916000000 {
+			opp-hz = /bits/ 64 <1916000000>;
+			opp-microvolt = <975000>;
+		};
+
+		opp-2000000000 {
+			opp-hz = /bits/ 64 <2000000000>;
+			opp-microvolt = <1000000>;
+		};
+	};
+
+	cluster1_opp: opp-table-cluster1 {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		opp-725000000 {
+			opp-hz = /bits/ 64 <725000000>;
+			opp-microvolt = <650000>;
+		};
+
+		opp-840000000 {
+			opp-hz = /bits/ 64 <840000000>;
+			opp-microvolt = <681250>;
+		};
+
+		opp-898000000 {
+			opp-hz = /bits/ 64 <898000000>;
+			opp-microvolt = <700000>;
+		};
+
+		opp-985000000 {
+			opp-hz = /bits/ 64 <985000000>;
+			opp-microvolt = <725000>;
+		};
+
+		opp-1042000000 {
+			opp-hz = /bits/ 64 <1042000000>;
+			opp-microvolt = <737500>;
+		};
+
+		opp-1129000000 {
+			opp-hz = /bits/ 64 <1129000000>;
+			opp-microvolt = <756250>;
+		};
+
+		opp-1274000000 {
+			opp-hz = /bits/ 64 <1274000000>;
+			opp-microvolt = <800000>;
+		};
+
+		opp-1418000000 {
+			opp-hz = /bits/ 64 <1418000000>;
+			opp-microvolt = <843750>;
+		};
+
+		opp-1534000000 {
+			opp-hz = /bits/ 64 <1534000000>;
+			opp-microvolt = <875000>;
+		};
+
+		opp-1650000000 {
+			opp-hz = /bits/ 64 <1650000000>;
+			opp-microvolt = <906250>;
+		};
+
+		opp-1720000000 {
+			opp-hz = /bits/ 64 <1720000000>;
+			opp-microvolt = <925000>;
+		};
+
+		opp-1790000000 {
+			opp-hz = /bits/ 64 <1790000000>;
+			opp-microvolt = <943750>;
+		};
+
+		opp-1836000000 {
+			opp-hz = /bits/ 64 <1836000000>;
+			opp-microvolt = <950000>;
+		};
+
+		opp-1906000000 {
+			opp-hz = /bits/ 64 <1906000000>;
+			opp-microvolt = <968750>;
+		};
+
+		opp-1953000000 {
+			opp-hz = /bits/ 64 <1953000000>;
+			opp-microvolt = <981250>;
+		};
+
+		opp-2000000000 {
+			opp-hz = /bits/ 64 <2000000000>;
+			opp-microvolt = <993750>;
+		};
+	};
+};
+
+&cpu0 {
+	clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
+	clock-names = "cpu", "intermediate";
+	operating-points-v2 = <&cluster0_opp>;
+	proc-supply = <&mt6359_vproc2_buck_reg>;
+	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
+};
+
+&cpu1 {
+	clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
+	clock-names = "cpu", "intermediate";
+	operating-points-v2 = <&cluster0_opp>;
+	proc-supply = <&mt6359_vproc2_buck_reg>;
+	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
+};
+
+&cpu2 {
+	clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
+	clock-names = "cpu", "intermediate";
+	operating-points-v2 = <&cluster0_opp>;
+	proc-supply = <&mt6359_vproc2_buck_reg>;
+	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
+};
+
+&cpu3 {
+	clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
+	clock-names = "cpu", "intermediate";
+	operating-points-v2 = <&cluster0_opp>;
+	proc-supply = <&mt6359_vproc2_buck_reg>;
+	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
+};
+
+&cpu4 {
+	clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
+	clock-names = "cpu", "intermediate";
+	operating-points-v2 = <&cluster0_opp>;
+	proc-supply = <&mt6359_vproc2_buck_reg>;
+	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
+};
+
+&cpu5 {
+	clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
+	clock-names = "cpu", "intermediate";
+	operating-points-v2 = <&cluster0_opp>;
+	proc-supply = <&mt6359_vproc2_buck_reg>;
+	sram-supply = <&mt6359_vsram_proc2_ldo_reg>;
+};
+
+&cpu6 {
+	clocks = <&mcusys CLK_MCU_ARMPLL_BL_SEL>, <&clk26m>;
+	clock-names = "cpu", "intermediate";
+	operating-points-v2 = <&cluster1_opp>;
+	proc-supply = <&mt6359_vgpu11_buck_reg>;
+	sram-supply = <&mt6359_vsram_proc1_ldo_reg>;
+};
+
+&cpu7 {
+	clocks = <&mcusys CLK_MCU_ARMPLL_BL_SEL>, <&clk26m>;
+	clock-names = "cpu", "intermediate";
+	operating-points-v2 = <&cluster1_opp>;
+	proc-supply = <&mt6359_vgpu11_buck_reg>;
+	sram-supply = <&mt6359_vsram_proc1_ldo_reg>;
 };
