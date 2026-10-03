@@ -281,6 +281,12 @@
 				compatible = "mediatek,mt6360-adc";
 				#io-channel-cells = <1>;
 			};
+
+			/* Leaves ICHG/AICR/CV as set by the bootloader (stock: 2 A / 0.5 A / 4.4 V). */
+			mt6360_chg: charger {
+				compatible = "mediatek,mt6360-chg";
+				richtek,vinovp-microvolt = <6500000>;
+			};
 		};
 	};
 };
@@ -324,5 +330,6 @@
 		io-channels = <&mt6360_adc 4>, <&mt6360_adc 6>;
 		io-channel-names = "voltage", "current";
 		monitored-battery = <&battery>;
+		power-supplies = <&mt6360_chg>;
 	};
 };
