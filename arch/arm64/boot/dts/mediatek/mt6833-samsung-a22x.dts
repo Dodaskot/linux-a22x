@@ -1325,6 +1325,11 @@
 	};
 
 	sound_ml: sound {
+		/* drop the vendor card description merged into this node */
+		/delete-property/ mediatek,audio-codec;
+		/delete-property/ mtk_spk_i2s_out;
+		/delete-property/ mtk_spk_i2s_in;
+		/delete-node/ mediatek,speaker-codec;
 		compatible = "mediatek,mt6833-mt6359-sound";
 		mediatek,platform = <&afe_ml>;
 		pinctrl-names = "aud_clk_mosi_off", "aud_clk_mosi_on", "aud_dat_mosi_off", "aud_dat_mosi_on", "aud_dat_miso_off", "aud_dat_miso_on", "aud_gpio_i2s3_off", "aud_gpio_i2s3_on", "aud_gpio_i2s0_off", "aud_gpio_i2s0_on";
