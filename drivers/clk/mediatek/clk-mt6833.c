@@ -1391,6 +1391,31 @@ static const struct mtk_gate ifrao_clks[] = {
 			"sflash_ck", 31),
 };
 
+/*
+ * The GPU mux must not feed the GPU from mfgpll while that PLL is being
+ * reprogrammed (GPU DVFS): park it on mfg_ref_sel around the rate change.
+ */
+static int clk_mt6833_reg_mfg_mux_notifier(struct device *dev, struct clk *clk)
+{
+	struct mtk_mux_nb *mfg_mux_nb;
+	int i;
+
+	mfg_mux_nb = devm_kzalloc(dev, sizeof(*mfg_mux_nb), GFP_KERNEL);
+	if (!mfg_mux_nb)
+		return -ENOMEM;
+
+	for (i = 0; i < ARRAY_SIZE(top_mtk_muxes); i++)
+		if (top_mtk_muxes[i].id == CLK_TOP_MFG_PLL_SEL)
+			break;
+	if (i == ARRAY_SIZE(top_mtk_muxes))
+		return -EINVAL;
+
+	mfg_mux_nb->ops = top_mtk_muxes[i].ops;
+	mfg_mux_nb->bypass_index = 0; /* mfg_ref_sel */
+
+	return devm_mtk_clk_mux_notifier_register(dev, clk, mfg_mux_nb);
+}
+
 static const struct mtk_clk_desc topck_desc = {
 	.fixed_clks = top_fixed_clks,
 	.num_fixed_clks = ARRAY_SIZE(top_fixed_clks),
@@ -1401,6 +1426,8 @@ static const struct mtk_clk_desc topck_desc = {
 	.composite_clks = top_composites,
 	.num_composite_clks = ARRAY_SIZE(top_composites),
 	.clk_lock = &mt6833_clk_lock,
+	.clk_notifier_func = clk_mt6833_reg_mfg_mux_notifier,
+	.mfg_clk_idx = CLK_TOP_MFG_PLL_SEL,
 };
 
 static const struct mtk_clk_desc ifrao_desc = {

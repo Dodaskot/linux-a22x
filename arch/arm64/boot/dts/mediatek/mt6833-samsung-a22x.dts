@@ -372,14 +372,14 @@
 			/*
 			 * Only the GPU rails are described; every other MT6359
 			 * regulator stays as the bootloader configured it.
-			 * Bring-up: fixed safe voltages, no GPU DVFS yet
-			 * (Samsung table: 0.80 V signs off up to 1000 MHz).
+			 * vgpu is scaled by the GPU OPP table; vsram_gpu stays
+			 * at the highest SRAM voltage of the vendor table.
 			 */
 			regulators {
 				mt6359_vproc1_buck_reg: buck_vproc1 {
 					regulator-name = "vgpu";
-					regulator-min-microvolt = <800000>;
-					regulator-max-microvolt = <800000>;
+					regulator-min-microvolt = <625000>;
+					regulator-max-microvolt = <850000>;
 					regulator-enable-ramp-delay = <200>;
 				};
 
@@ -506,5 +506,56 @@
 				<&spm MT6833_POWER_DOMAIN_MFG3>;
 		power-domain-names = "core0", "core1";
 		mali-supply = <&mt6359_vproc1_buck_reg>;
+		operating-points-v2 = <&gpu_opp_table>;
+	};
+
+	/*
+	 * Subset of the Samsung/MediaTek MT6833 GPU table; each voltage is the
+	 * highest of the three chip segments (MT6833, MT6833M, MT6833T).
+	 */
+	gpu_opp_table: opp-table-gpu {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		opp-390000000 {
+			opp-hz = /bits/ 64 <390000000>;
+			opp-microvolt = <625000>;
+		};
+		opp-467000000 {
+			opp-hz = /bits/ 64 <467000000>;
+			opp-microvolt = <631250>;
+		};
+		opp-545000000 {
+			opp-hz = /bits/ 64 <545000000>;
+			opp-microvolt = <637500>;
+		};
+		opp-622000000 {
+			opp-hz = /bits/ 64 <622000000>;
+			opp-microvolt = <643750>;
+		};
+		opp-700000000 {
+			opp-hz = /bits/ 64 <700000000>;
+			opp-microvolt = <650000>;
+		};
+		opp-790000000 {
+			opp-hz = /bits/ 64 <790000000>;
+			opp-microvolt = <700000>;
+		};
+		opp-880000000 {
+			opp-hz = /bits/ 64 <880000000>;
+			opp-microvolt = <750000>;
+		};
+		opp-955000000 {
+			opp-hz = /bits/ 64 <955000000>;
+			opp-microvolt = <781250>;
+		};
+		opp-1000000000 {
+			opp-hz = /bits/ 64 <1000000000>;
+			opp-microvolt = <800000>;
+		};
+		opp-1068000000 {
+			opp-hz = /bits/ 64 <1068000000>;
+			opp-microvolt = <850000>;
+		};
 	};
 };
