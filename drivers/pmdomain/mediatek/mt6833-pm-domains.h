@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * MediaTek MT6833 (Dimensity 700) power domains - GPU (MFG) only for now.
+ * MediaTek MT6833 (Dimensity 700) power domains: GPU (MFG) and audio.
  *
  * The SPM MFG control/status layout and the MFG1 bus protection masks are
  * the same as MT8192; MT6833 additionally gates the MFG1 AXI "way" in
@@ -91,6 +91,22 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6833[] = {
 		.pwr_sta2nd_offs = 0x0170,
 		.sram_pdn_bits = GENMASK(8, 8),
 		.sram_pdn_ack_bits = GENMASK(12, 12),
+	},
+	[MT6833_POWER_DOMAIN_AUDIO] = {
+		.name = "audio",
+		.sta_mask = BIT(22),
+		.ctl_offs = 0x0358,
+		.pwr_sta_offs = 0x016c,
+		.pwr_sta2nd_offs = 0x0170,
+		.sram_pdn_bits = GENMASK(8, 8),
+		.sram_pdn_ack_bits = GENMASK(12, 12),
+		.bp_cfg = {
+			BUS_PROT_WR(INFRA,
+				    MT8192_TOP_AXI_PROT_EN_2_AUDIO,
+				    MT8192_TOP_AXI_PROT_EN_2_SET,
+				    MT8192_TOP_AXI_PROT_EN_2_CLR,
+				    MT8192_TOP_AXI_PROT_EN_2_STA1),
+		},
 	},
 };
 

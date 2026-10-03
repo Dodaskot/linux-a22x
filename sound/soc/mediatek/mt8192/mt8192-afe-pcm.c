@@ -2203,7 +2203,7 @@ static int mt8192_afe_pcm_dev_probe(struct platform_device *pdev)
 	}
 
 	/* reset controller to reset audio regs before regmap cache */
-	rstc = devm_reset_control_get_exclusive(dev, "audiosys");
+	rstc = devm_reset_control_get_optional_exclusive(dev, "audiosys");
 	if (IS_ERR(rstc))
 		return dev_err_probe(dev, PTR_ERR(rstc), "could not get audiosys reset\n");
 
@@ -2327,6 +2327,7 @@ static void mt8192_afe_pcm_dev_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id mt8192_afe_pcm_dt_match[] = {
+	{ .compatible = "mediatek,mt6833-audio", },
 	{ .compatible = "mediatek,mt8192-audio", },
 	{},
 };

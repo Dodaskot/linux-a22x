@@ -297,6 +297,15 @@ config SND_SOC_MT8192
 	  Select Y if you have such device.
 	  If unsure select "N".
 
+config SND_SOC_MT6833_MT6359
+	tristate "ASoC Audio driver for MT6833 with MT6359 codec"
+	depends on SND_SOC_MT8192 && MTK_PMIC_WRAP
+	select SND_SOC_MT6359
+	help
+	  This adds the ASoC machine driver for MediaTek MT6833 (Dimensity 700)
+	  phones with the MT6359 audio codec. The MT6833 AFE is driven by the
+	  MT8192 AFE driver.
+
 config SND_SOC_MT8192_MT6359_RT1015_RT5682
 	tristate "ASoC Audio driver for MT8192 with MT6359 RT1015 RT5682 codec"
 	depends on I2C && GPIOLIB
