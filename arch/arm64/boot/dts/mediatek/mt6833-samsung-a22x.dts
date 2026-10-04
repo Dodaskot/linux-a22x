@@ -501,7 +501,12 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		/* MN78911 light/proximity sits at 0x46 (no driver yet) */
+		light-sensor@46 {
+			compatible = "a22x,mn78911";
+			reg = <0x46>;
+			/* palm over the sensor ~370, open ~60 */
+			proximity-near-level = <200>;
+		};
 
 		magnetometer@30 {
 			compatible = "memsic,mmc5603";

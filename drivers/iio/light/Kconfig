@@ -457,6 +457,13 @@ config LV0104CS
 	  To compile this driver as a module, choose M here:
 	  the module will be called lv0104cs.
 
+config MN78911
+	tristate "MN78911 ambient light and proximity sensor"
+	depends on I2C
+	help
+	  Ambient light and proximity sensor found in the Samsung Galaxy
+	  A22 5G, read with its power-on configuration.
+
 config MAX44000
 	tristate "MAX44000 Ambient and Infrared Proximity Sensor"
 	depends on I2C
