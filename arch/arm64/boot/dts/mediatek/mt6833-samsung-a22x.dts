@@ -614,6 +614,20 @@
 				compatible = "mediatek,mt6358-rtc";
 			};
 
+			/* headset jack detection; values from the vendor accdet node */
+			mt6359_accdet: accdet {
+				compatible = "mediatek,mt6359-accdet";
+				mediatek,mic-vol = <8>;
+				mediatek,plugout-debounce = <1>;
+				mediatek,mic-mode = <2>;
+				mediatek,pwm-deb-setting = <0x500 0x500 0x1 0x1f0
+							    0x800 0x800 0x20 0x44
+							    0x4 0x1 0x5 0x3 0x3 0x5 0xe>;
+				mediatek,eint-use-ext-res = <0>;
+				mediatek,key-mode = <0>;
+				mediatek,three-key-thr = <0 80 220 400>;
+			};
+
 			mt6359codec {
 				mediatek,dmic-mode = <0>;	/* two-wire */
 				mediatek,mic-type-0 = <1>;	/* ACC */
@@ -1530,6 +1544,7 @@
 		compatible = "mediatek,mt6833-mt6359-sound";
 		status = "okay";
 		mediatek,speaker-amplifier = <&sia8109_amp>;
+		mediatek,accdet = <&mt6359_accdet>;
 		mediatek,platform = <&afe_ml>;
 		pinctrl-names = "aud_clk_mosi_off", "aud_clk_mosi_on", "aud_dat_mosi_off", "aud_dat_mosi_on", "aud_dat_miso_off", "aud_dat_miso_on", "aud_gpio_i2s3_off", "aud_gpio_i2s3_on", "aud_gpio_i2s0_off", "aud_gpio_i2s0_on";
 		pinctrl-0 = <&aud_clk_mosi_off_ml>;

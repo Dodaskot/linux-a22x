@@ -302,6 +302,7 @@ config SND_SOC_MT6833_MT6359
 	depends on SND_SOC_MT8192 && MTK_PMIC_WRAP
 	select SND_SOC_MT6359
 	select SND_SOC_AW8738
+	select SND_SOC_MT6359_ACCDET
 	help
 	  This adds the ASoC machine driver for MediaTek MT6833 (Dimensity 700)
 	  phones with the MT6359 audio codec. The MT6833 AFE is driven by the
