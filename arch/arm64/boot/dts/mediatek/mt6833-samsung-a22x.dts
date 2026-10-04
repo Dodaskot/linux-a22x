@@ -418,9 +418,9 @@
 		interrupt-names = "INT1";
 		pinctrl-names = "default";
 		pinctrl-0 = <&imu_int_pins>;
-		/* measured: the chip reports the gravity vector on all three axes */
+		/* chip X/Z point opposite the panel axes (checked with Plasma rotation) */
 		mount-matrix = "-1", "0", "0",
-			       "0", "-1", "0",
+			       "0", "1", "0",
 			       "0", "0", "-1";
 	};
 };
