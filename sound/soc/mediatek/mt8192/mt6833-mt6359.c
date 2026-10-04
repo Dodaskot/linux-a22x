@@ -438,6 +438,12 @@ static int mt6833_mt6359_soc_card_probe(struct mtk_soc_card_data *soc_card_data,
 	struct device_node *amp;
 	int ret;
 
+	/* the common code does not wait for the accdet component */
+	if (of_property_present(card->dev->of_node, "mediatek,accdet") &&
+	    !soc_card_data->accdet)
+		return dev_err_probe(card->dev, -EPROBE_DEFER,
+				     "waiting for the accdet component\n");
+
 	ret = mt8192_afe_gpio_init(card->dev);
 	if (ret)
 		return dev_err_probe(card->dev, ret, "%s init gpio error\n", __func__);
