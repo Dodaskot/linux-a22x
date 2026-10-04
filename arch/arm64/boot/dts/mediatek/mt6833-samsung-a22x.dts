@@ -418,6 +418,10 @@
 		interrupt-names = "INT1";
 		pinctrl-names = "default";
 		pinctrl-0 = <&imu_int_pins>;
+		/* measured: face up reads -g on Z, upright reads -g on Y */
+		mount-matrix = "1", "0", "0",
+			       "0", "-1", "0",
+			       "0", "0", "-1";
 	};
 };
 
