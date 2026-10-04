@@ -51,6 +51,13 @@
 			stride = <(1088 * 4)>;
 			format = "a8r8g8b8";
 			backlight = <&backlight>;
+			/*
+			 * Physical size (stock panel driver: 68.43 x 152.57 mm), else
+			 * simpledrm assumes 96 dpi and the OSK gets far too thin. Not a
+			 * "panel" phandle: that variant hung at the boot logo (v73).
+			 */
+			width-mm = <68>;
+			height-mm = <152>;
 		};
 	};
 

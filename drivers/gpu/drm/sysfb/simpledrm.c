@@ -705,6 +705,10 @@ static struct simpledrm_device *simpledrm_device_create(struct drm_driver *drv,
 			simplefb_read_u32_of(dev, panel_node, "width-mm", &width_mm);
 			simplefb_read_u32_of(dev, panel_node, "height-mm", &height_mm);
 			of_node_put(panel_node);
+		} else {
+			/* a22x: the size can also sit on the framebuffer node */
+			of_property_read_u32(of_node, "width-mm", &width_mm);
+			of_property_read_u32(of_node, "height-mm", &height_mm);
 		}
 	} else {
 		drm_err(dev, "no simplefb configuration found\n");
