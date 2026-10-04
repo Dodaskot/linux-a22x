@@ -832,8 +832,6 @@
 
 			power-domain@MT6833_POWER_DOMAIN_CONN {
 				reg = <MT6833_POWER_DOMAIN_CONN>;
-				clocks = <&infracfg_ao CLK_IFRAO_PMIC_CONN>;
-				clock-names = "conn";
 				mediatek,infracfg = <&infracfg_ao>;
 				#power-domain-cells = <0>;
 			};
