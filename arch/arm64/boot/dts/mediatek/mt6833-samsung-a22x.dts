@@ -500,6 +500,13 @@
 		pinctrl-0 = <&i2c1_pins>;
 		#address-cells = <1>;
 		#size-cells = <0>;
+
+		/* MN78911 light/proximity sits at 0x46 (no driver yet) */
+
+		magnetometer@30 {
+			compatible = "memsic,mmc5603";
+			reg = <0x30>;
+		};
 	};
 
 	i2c5_ml: i2c@11e01000 {
