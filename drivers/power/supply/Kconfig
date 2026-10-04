@@ -38,6 +38,14 @@ config APM_POWER
 config ADC_BATTERY_HELPER
 	tristate
 
+config FUEL_GAUGE_MT6359
+	tristate "MediaTek MT6359 fuel gauge"
+	depends on MFD_MT6397 || COMPILE_TEST
+	depends on IIO
+	help
+	  Battery state of charge from the coulomb counter (FGADC) of the
+	  MediaTek MT6359 PMIC. The bootloader must leave the FGADC enabled.
+
 config GENERIC_ADC_BATTERY
 	tristate "Generic battery support using IIO"
 	depends on IIO

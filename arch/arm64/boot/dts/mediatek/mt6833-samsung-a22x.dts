@@ -590,6 +590,8 @@
 	battery: battery {
 		compatible = "simple-battery";
 		charge-full-design-microamp-hours = <5000000>;
+		/* ~120 mOhm at 25 C, stock W1 SCUD/BYD 5000 mAh profiles */
+		factory-internal-resistance-micro-ohms = <120000>;
 		voltage-min-design-microvolt = <3400000>;
 		voltage-max-design-microvolt = <4400000>;
 		ocv-capacity-celsius = <25>;
@@ -616,10 +618,14 @@
 						<3400000 0>;
 	};
 
-	adc-battery {
-		compatible = "adc-battery";
-		io-channels = <&mt6360_adc 4>, <&mt6360_adc 6>;
-		io-channel-names = "voltage", "current";
+	/* coulomb counter of the MT6359 PMIC; VBAT from the MT6360 ADC */
+	fuel-gauge {
+		compatible = "mediatek,mt6359-fuel-gauge";
+		mediatek,pmic = <&mt6359>;
+		/* R_FG_VALUE 5 mOhm, CAR_TUNE 100 % (stock mt6833_battery_prop.dtsi) */
+		mediatek,sense-resistor-micro-ohms = <5000>;
+		io-channels = <&mt6360_adc 4>;
+		io-channel-names = "voltage";
 		monitored-battery = <&battery>;
 		power-supplies = <&mt6360_chg>;
 	};
