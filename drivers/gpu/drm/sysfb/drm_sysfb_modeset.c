@@ -355,12 +355,27 @@ void drm_sysfb_plane_helper_atomic_update(struct drm_plane *plane, struct drm_at
 	drm_atomic_for_each_plane_damage(&iter, &damage) {
 		struct iosys_map dst = sysfb->fb_addr;
 		struct drm_rect dst_clip = plane_state->dst;
+		struct drm_rect screen = DRM_RECT_INIT(0, 0, sysfb->fb_mode.hdisplay,
+						       sysfb->fb_mode.vdisplay);
+		struct drm_rect src_clip;
 
-		if (!drm_rect_intersect(&dst_clip, &damage))
+		if (!drm_rect_intersect(&dst_clip, &damage) ||
+		    !drm_rect_intersect(&dst_clip, &screen))
 			continue;
 
+		/*
+		 * Copy only what lands on the scanout buffer: the damage may be
+		 * larger than the visible part of the plane, and blitting the
+		 * full damage rectangle at the clipped offset writes past the
+		 * end of the firmware framebuffer.
+		 */
+		src_clip = dst_clip;
+		drm_rect_translate(&src_clip,
+				   (plane_state->src.x1 >> 16) - plane_state->dst.x1,
+				   (plane_state->src.y1 >> 16) - plane_state->dst.y1);
+
 		iosys_map_incr(&dst, drm_fb_clip_offset(dst_pitch, dst_format, &dst_clip));
-		blit_to_crtc(&dst, &dst_pitch, shadow_plane_state->data, fb, &damage,
+		blit_to_crtc(&dst, &dst_pitch, shadow_plane_state->data, fb, &src_clip,
 			     &shadow_plane_state->fmtcnv_state);
 	}
 
