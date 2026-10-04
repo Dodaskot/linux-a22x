@@ -2298,7 +2298,12 @@ static int mt8192_afe_pcm_dev_probe(struct platform_device *pdev)
 	afe->irq_fs = mt8192_irq_fs;
 	afe->get_dai_fs = mt8192_get_dai_fs;
 	afe->get_memif_pbuf_size = mt8192_get_memif_pbuf_size;
-	afe->memif_32bit_supported = 1;
+	/*
+	 * MT6833 memifs have no true 32-bit mode (its vendor driver sets 0):
+	 * S32 is played as MSB-aligned 24-bit, otherwise it comes out as noise.
+	 */
+	afe->memif_32bit_supported =
+		!of_device_is_compatible(dev->of_node, "mediatek,mt6833-audio");
 
 	afe->runtime_resume = mt8192_afe_runtime_resume;
 	afe->runtime_suspend = mt8192_afe_runtime_suspend;
