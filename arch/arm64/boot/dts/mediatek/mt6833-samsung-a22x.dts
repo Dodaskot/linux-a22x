@@ -51,17 +51,7 @@
 			stride = <(1088 * 4)>;
 			format = "a8r8g8b8";
 			backlight = <&backlight>;
-			panel = <&fb_panel>;
 		};
-	};
-
-	/*
-	 * Physical size for simpledrm (else it assumes 96 dpi and the on-screen
-	 * keyboard gets far too thin): 68.43 x 152.57 mm in the stock panel driver.
-	 */
-	fb_panel: simplefb-panel {
-		width-mm = <68>;
-		height-mm = <152>;
 	};
 
 	pio_ml: pinctrl@10005000 {
