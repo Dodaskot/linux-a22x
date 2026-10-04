@@ -27,6 +27,7 @@ description: |
 properties:
   compatible:
     enum:
+      - invensense,icm40607
       - invensense,icm42600
       - invensense,icm42602
       - invensense,icm42605

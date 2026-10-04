@@ -216,6 +216,14 @@
 
 		/* SD card slot (MSDC1); vendor drive strength 8 mA */
 		/* IMU on SPI2 (the vendor drives it from the SCP via SCP_SPI2) */
+		imu_int_pins: imu-int-pins {
+			pins-int {
+				pinmux = <PINMUX_GPIO3__FUNC_GPIO3>;
+				input-enable;
+				bias-disable;
+			};
+		};
+
 		spi2_pins: spi2-pins {
 			pins-spi {
 				pinmux = <PINMUX_GPIO31__FUNC_SPI2_CLK>,
@@ -399,11 +407,17 @@
 	pinctrl-0 = <&spi2_pins>;
 	status = "okay";
 
-	/* bring-up: raw access to identify the IMU */
+	/* TDK ICM-40607 accelerometer/gyroscope (WHO_AM_I 0x38), INT1 on GPIO3 */
 	imu@0 {
-		compatible = "rohm,dh2228fv";
+		compatible = "invensense,icm40607";
 		reg = <0>;
-		spi-max-frequency = <1000000>;
+		spi-max-frequency = <10000000>;
+		spi-cpha;
+		spi-cpol;
+		interrupts-extended = <&pio_ml 3 IRQ_TYPE_EDGE_FALLING>;
+		interrupt-names = "INT1";
+		pinctrl-names = "default";
+		pinctrl-0 = <&imu_int_pins>;
 	};
 };
 

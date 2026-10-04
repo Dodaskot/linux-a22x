@@ -78,6 +78,7 @@ static const struct spi_device_id inv_icm42600_id[] = {
 	{ "icm42622", INV_CHIP_ICM42622 },
 	{ "icm42688", INV_CHIP_ICM42688 },
 	{ "icm42631", INV_CHIP_ICM42631 },
+	{ "icm40607", INV_CHIP_ICM40607 },
 	{ }
 };
 MODULE_DEVICE_TABLE(spi, inv_icm42600_id);
@@ -104,6 +105,9 @@ static const struct of_device_id inv_icm42600_of_matches[] = {
 	}, {
 		.compatible = "invensense,icm42631",
 		.data = (void *)INV_CHIP_ICM42631,
+	}, {
+		.compatible = "invensense,icm40607",
+		.data = (void *)INV_CHIP_ICM40607,
 	},
 	{ }
 };
