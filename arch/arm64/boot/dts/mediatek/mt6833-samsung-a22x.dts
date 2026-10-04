@@ -1658,3 +1658,8 @@
 	vcn33_2_wifi-supply = <&mt6359_vcn33_2_ldo_reg>;
 	status = "okay";
 };
+
+&{/wifi@18000000} {
+	memory-region = <&{/reserved-memory/wifi-reserve-memory}>;
+	status = "okay";
+};
