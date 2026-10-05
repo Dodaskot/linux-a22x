@@ -2,6 +2,7 @@
 /* MT6833 display clocks. Register map from MediaTek/Samsung GPL sources. */
 #include <linux/clk-provider.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <dt-bindings/clock/mt6833-clk.h>
 
@@ -65,10 +66,32 @@ static const struct platform_device_id clk_mt6833_mm_ids[] = {
 };
 MODULE_DEVICE_TABLE(platform, clk_mt6833_mm_ids);
 
+static const struct of_device_id clk_mt6833_mm_match[] = {
+	{ .compatible = "mediatek,mt6833-display-clocks", .data = &mm_desc },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, clk_mt6833_mm_match);
+
+static int clk_mt6833_mm_probe(struct platform_device *pdev)
+{
+	return pdev->dev.of_node ? mtk_clk_simple_probe(pdev) : mtk_clk_pdev_probe(pdev);
+}
+
+static void clk_mt6833_mm_remove(struct platform_device *pdev)
+{
+	if (pdev->dev.of_node)
+		mtk_clk_simple_remove(pdev);
+	else
+		mtk_clk_pdev_remove(pdev);
+}
+
 static struct platform_driver clk_mt6833_mm_driver = {
-	.probe = mtk_clk_pdev_probe,
-	.remove = mtk_clk_pdev_remove,
-	.driver = { .name = "clk-mt6833-mm" },
+	.probe = clk_mt6833_mm_probe,
+	.remove = clk_mt6833_mm_remove,
+	.driver = {
+		.name = "clk-mt6833-mm",
+		.of_match_table = clk_mt6833_mm_match,
+	},
 	.id_table = clk_mt6833_mm_ids,
 };
 module_platform_driver(clk_mt6833_mm_driver);

@@ -44,7 +44,6 @@ static const struct mtk_mmsys_driver_data mt6779_mmsys_driver_data = {
 };
 
 static const struct mtk_mmsys_driver_data mt6833_mmsys_driver_data = {
-	.clk_driver = "clk-mt6833-mm",
 	.need_runtime_pm = true,
 	.routes = mt6833_mmsys_routes,
 	.num_routes = ARRAY_SIZE(mt6833_mmsys_routes),
@@ -398,7 +397,7 @@ static const struct reset_control_ops mtk_mmsys_reset_ops = {
 static int mtk_mmsys_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct platform_device *clks;
+	struct platform_device *clks = NULL;
 	struct platform_device *drm;
 	struct mtk_mmsys *mmsys;
 	int ret;
@@ -442,11 +441,13 @@ static int mtk_mmsys_probe(struct platform_device *pdev)
 			return ret;
 	}
 
-	clks = platform_device_register_data(&pdev->dev, mmsys->data->clk_driver,
-					     PLATFORM_DEVID_AUTO, NULL, 0);
-	if (IS_ERR(clks))
-		return PTR_ERR(clks);
-	mmsys->clks_pdev = clks;
+	if (mmsys->data->clk_driver) {
+		clks = platform_device_register_data(&pdev->dev, mmsys->data->clk_driver,
+						     PLATFORM_DEVID_AUTO, NULL, 0);
+		if (IS_ERR(clks))
+			return PTR_ERR(clks);
+		mmsys->clks_pdev = clks;
+	}
 
 	if (mmsys->data->is_vppsys)
 		goto out_probe_done;

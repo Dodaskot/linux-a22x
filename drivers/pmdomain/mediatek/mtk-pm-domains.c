@@ -269,8 +269,13 @@ static int scpsys_bus_protect_enable(struct scpsys_domain *pd, u8 flags)
 			ret = scpsys_bus_protect_clear(pd, bpd);
 		else
 			ret = scpsys_bus_protect_set(pd, bpd);
-		if (ret)
+		if (ret) {
+			dev_err_ratelimited(pd->scpsys->dev,
+				"%s bus protection step %d (reg %#x mask %#x) failed: %d\n",
+				pd->data->name, i, bpd->bus_prot_sta,
+				bpd->bus_prot_sta_mask, ret);
 			return ret;
+		}
 	}
 
 	return 0;
@@ -700,8 +705,11 @@ static int scpsys_power_off_internal(struct scpsys_domain *pd)
 	int ret;
 
 	ret = scpsys_bus_protect_enable(pd, 0);
-	if (ret < 0)
+	if (ret < 0) {
+		/* genpd keeps the domain on after failure; restore usable buses. */
+		scpsys_bus_protect_disable(pd, 0);
 		return ret;
+	}
 
 	ret = scpsys_sram_disable(pd);
 	if (ret < 0)

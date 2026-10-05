@@ -47,17 +47,23 @@
 		#size-cells = <2>;
 		ranges;
 
+		/* No power-domain dependency: SCPSYS needs these before registration. */
+		mm_clk_ml: clock-controller-ml@14000000 {
+			compatible = "mediatek,mt6833-display-clocks";
+			reg = <0 0x14000000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
 		mmsys_ml: syscon@14000000 {
 			compatible = "mediatek,mt6833-display", "syscon";
 			reg = <0 0x14000000 0 0x1000>;
-			#clock-cells = <1>;
 			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
 		};
 
 		disp_mutex_ml: mutex@14001000 {
 			compatible = "mediatek,mt6833-disp-mutex";
 			reg = <0 0x14001000 0 0x1000>;
-			clocks = <&mmsys_ml CLK_MM_DISP_MUTEX0>;
+			clocks = <&mm_clk_ml CLK_MM_DISP_MUTEX0>;
 			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
 		};
 
@@ -65,11 +71,11 @@
 			compatible = "mediatek,mt6833-disp-rdma";
 			reg = <0 0x14007000 0 0x1000>;
 			interrupts = <GIC_SPI 257 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&mmsys_ml CLK_MM_DISP_RDMA0>,
-				 <&mmsys_ml CLK_MM_SMI_INFRA>,
-				 <&mmsys_ml CLK_MM_SMI_COMMON>,
-				 <&mmsys_ml CLK_MM_SMI_GALS>,
-				 <&mmsys_ml CLK_MM_SMI_IOMMU>;
+			clocks = <&mm_clk_ml CLK_MM_DISP_RDMA0>,
+				 <&mm_clk_ml CLK_MM_SMI_INFRA>,
+				 <&mm_clk_ml CLK_MM_SMI_COMMON>,
+				 <&mm_clk_ml CLK_MM_SMI_GALS>,
+				 <&mm_clk_ml CLK_MM_SMI_IOMMU>;
 			clock-names = "rdma", "smi-infra", "smi-common", "smi-gals", "smi-iommu";
 			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
 		};
@@ -87,8 +93,8 @@
 			compatible = "mediatek,mt6833-dsi-cphy";
 			reg = <0 0x14013000 0 0x1000>;
 			interrupts = <GIC_SPI 269 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&mmsys_ml CLK_MM_DSI0>,
-				 <&mmsys_ml CLK_MM_DSI0_DSI_CK_DOMAIN>, <&mipi_tx0_ml>;
+			clocks = <&mm_clk_ml CLK_MM_DSI0>,
+				 <&mm_clk_ml CLK_MM_DSI0_DSI_CK_DOMAIN>, <&mipi_tx0_ml>;
 			clock-names = "engine", "digital", "hs";
 			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
 			phys = <&mipi_tx0_ml>;
@@ -133,8 +139,14 @@
 &spm {
 	power-domain@6 {
 		reg = <MT6833_POWER_DOMAIN_DISP>;
-		clocks = <&topckgen CLK_TOP_DISP_SEL>;
-		clock-names = "disp";
+		clocks = <&topckgen CLK_TOP_DISP_SEL>,
+			 <&mm_clk_ml CLK_MM_SMI_INFRA>,
+			 <&mm_clk_ml CLK_MM_SMI_COMMON>,
+			 <&mm_clk_ml CLK_MM_SMI_GALS>,
+			 <&mm_clk_ml CLK_MM_SMI_IOMMU>,
+			 <&mm_clk_ml CLK_MM_APB_BUS>;
+		clock-names = "disp", "smi-infra", "smi-common", "smi-gals",
+			      "smi-iommu", "mm-apb";
 		mediatek,infracfg = <&infracfg_ao>;
 		#power-domain-cells = <0>;
 	};
