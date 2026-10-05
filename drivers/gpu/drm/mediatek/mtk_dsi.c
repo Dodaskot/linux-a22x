@@ -719,10 +719,16 @@ static irqreturn_t mtk_dsi_irq(int irq, void *dev_id)
 	status = readl(dsi->regs + DSI_INTSTA) & flag;
 
 	if (status) {
-		do {
-			mtk_dsi_mask(dsi, DSI_RACK, RACK, RACK);
-			tmp = readl(dsi->regs + DSI_INTSTA);
-		} while (tmp & DSI_BUSY);
+		if (dsi->driver_data->is_cphy) {
+			/* MT6833's video engine may already be busy with the next frame. */
+			if (status & LPRX_RD_RDY_INT_FLAG)
+				mtk_dsi_mask(dsi, DSI_RACK, RACK, RACK);
+		} else {
+			do {
+				mtk_dsi_mask(dsi, DSI_RACK, RACK, RACK);
+				tmp = readl(dsi->regs + DSI_INTSTA);
+			} while (tmp & DSI_BUSY);
+		}
 
 		mtk_dsi_mask(dsi, DSI_INTSTA, status, 0);
 		mtk_dsi_irq_data_set(dsi, status);
@@ -866,6 +872,12 @@ static void mtk_dsi_poweroff(struct mtk_dsi *dsi)
 	writel(0, dsi->regs + DSI_TXRX_CTRL);
 
 	mtk_dsi_disable(dsi);
+
+	/* Stop IRQ delivery before the MT6833 display power domain can shut down. */
+	if (dsi->driver_data->is_cphy) {
+		writel(0, dsi->regs + DSI_INTEN);
+		writel(0, dsi->regs + DSI_INTSTA);
+	}
 
 	clk_disable_unprepare(dsi->engine_clk);
 	clk_disable_unprepare(dsi->digital_clk);

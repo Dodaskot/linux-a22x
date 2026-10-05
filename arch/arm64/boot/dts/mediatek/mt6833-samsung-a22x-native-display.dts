@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Opt-in native display bring-up; the regular a22x DT remains the fallback. */
+#include <dt-bindings/interrupt-controller/arm-gic.h>
 #include "mt6833-samsung-a22x.dts"
 
 / {
