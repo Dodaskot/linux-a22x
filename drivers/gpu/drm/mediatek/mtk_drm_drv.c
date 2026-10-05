@@ -395,6 +395,12 @@ static bool mtk_drm_get_all_drm_priv(struct device *dev)
 	unsigned int cnt = 0;
 	int i, j;
 
+	/* The child may bind synchronously before device_add links it to MMSYS. */
+	if (drm_priv->data->mmsys_dev_num == 1) {
+		drm_priv->all_drm_private[0] = drm_priv;
+		return true;
+	}
+
 	for_each_child_of_node(phandle->parent, node) {
 		struct platform_device *pdev;
 
@@ -1245,7 +1251,8 @@ static void mtk_drm_shutdown(struct platform_device *pdev)
 {
 	struct mtk_drm_private *private = platform_get_drvdata(pdev);
 
-	drm_atomic_helper_shutdown(private->drm);
+	if (private->drm_master)
+		drm_atomic_helper_shutdown(private->drm);
 }
 
 static int mtk_drm_sys_prepare(struct device *dev)
