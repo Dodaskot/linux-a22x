@@ -83,7 +83,7 @@
 			clock-output-names = "mipi_tx0_ml_pll";
 		};
 
-		dsi0_ml: dsi@14013000 {
+		dsi0_ml: dsi-ml@14013000 {
 			compatible = "mediatek,mt6833-dsi-cphy";
 			reg = <0 0x14013000 0 0x1000>;
 			interrupts = <GIC_SPI 269 IRQ_TYPE_LEVEL_HIGH>;
