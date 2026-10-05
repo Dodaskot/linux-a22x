@@ -1437,6 +1437,7 @@ static const struct mtk_dsi_driver_data mt6833_cphy_dsi_driver_data = {
 	.reg_cmdq_off = 0x200,
 	.reg_vm_cmd_off = 0x130,
 	.reg_shadow_dbg_off = 0x190,
+	.has_shadow_ctl = true,
 	.has_size_ctl = true,
 	.is_cphy = true,
 };

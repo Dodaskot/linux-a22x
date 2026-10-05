@@ -909,6 +909,12 @@ int mtk_mutex_prepare(struct mtk_mutex *mutex)
 	ret = clk_prepare_enable(mtx->clk);
 	if (ret && mtx->data->need_runtime_pm)
 		pm_runtime_put_sync(mtx->dev);
+	if (!ret && mtx->data->need_runtime_pm) {
+		/* Take over this mutex without retaining LK's full display path. */
+		writel(0, mtx->regs + DISP_REG_MUTEX_EN(mutex->id));
+		writel(0, mtx->regs + DISP_REG_MUTEX_MOD(mtx, 0, mutex->id));
+		writel(0, mtx->regs + DISP_REG_MUTEX_MOD(mtx, 32, mutex->id));
+	}
 
 	return ret;
 }
