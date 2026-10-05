@@ -219,11 +219,12 @@ config DRM_PANEL_HIMAX_HX83112A
 
 config DRM_PANEL_HIMAX_HX83112F
 	tristate "JDI HX83112F C-PHY panel for Galaxy A22 5G"
-	depends on OF && DRM_MIPI_DSI && BACKLIGHT_CLASS_DEVICE
-	select REGULATOR
+	depends on OF && DRM_MIPI_DSI && BACKLIGHT_CLASS_DEVICE && REGULATOR
 	help
 	  Enable the 1080x2408 JDI HX83112F panel on Samsung Galaxy A22 5G.
 	  The panel uses three C-PHY trios and supports 60 and 90 Hz modes.
+	  It includes DCS brightness control and sequences both bias rails
+	  when the DRM connector is disabled or the system suspends.
 
 config DRM_PANEL_HIMAX_HX83112B
 	tristate "Himax HX83112B-based DSI panel"

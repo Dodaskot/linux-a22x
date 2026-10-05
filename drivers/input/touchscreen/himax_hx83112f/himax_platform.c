@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <linux/pm.h>
 #include <linux/property.h>
+#include <drm/drm_panel.h>
 #include "himax_platform.h"
 #include "himax_common.h"
 
@@ -24,6 +25,8 @@ static uint8_t *gBuffer;
 static struct spi_device *hx_spi;
 static struct gpio_desc *hx_reset_gpio;
 static struct gpio_desc *hx_irq_gpio;
+static struct drm_panel_follower hx_panel_follower;
+static bool hx_follows_panel;
 struct device *g_device;
 
 int himax_dev_set(struct himax_ts_data *ts)
@@ -209,6 +212,40 @@ int himax_ts_unregister_interrupt(void)
 	return 0;
 }
 
+static int himax_panel_prepared(struct drm_panel_follower *follower)
+{
+	int ret;
+
+	/* Zero-flash firmware may only be loaded while the shared rails are on. */
+	if (!g_hx_chip_inited) {
+		ret = himax_chip_common_init();
+		if (ret < 0)
+			return ret;
+		dev_info(g_device, "HX83112F touch ready after panel power-on\n");
+		return 0;
+	}
+	return himax_chip_common_resume(private_ts);
+}
+
+static int himax_panel_unpreparing(struct drm_panel_follower *follower)
+{
+	if (!g_hx_chip_inited)
+		return 0;
+#if defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)
+	cancel_delayed_work_sync(&private_ts->work_boot_upgrade);
+#endif
+	himax_chip_common_suspend(private_ts);
+	/* Drain a running SPI IRQ before the panel removes its shared power. */
+	if (private_ts->use_irq)
+		synchronize_irq(private_ts->hx_irq);
+	return 0;
+}
+
+static const struct drm_panel_follower_funcs himax_panel_follower_funcs = {
+	.panel_prepared = himax_panel_prepared,
+	.panel_unpreparing = himax_panel_unpreparing,
+};
+
 static int himax_hx83112f_probe(struct spi_device *spi)
 {
 	struct himax_ts_data *ts;
@@ -247,10 +284,18 @@ static int himax_hx83112f_probe(struct spi_device *spi)
 	g_fw_boot_upgrade_name = "Himax_firmware_fw_jdi.bin";
 	g_fw_mp_upgrade_name = "Himax_firmware_mp_jdi.bin";
 
-	ret = himax_chip_common_init();
-	if (ret < 0)
-		goto err;
-	dev_info(&spi->dev, "HX83112F touch ready, irq %d\n", spi->irq);
+	hx_follows_panel = drm_is_panel_follower(&spi->dev);
+	if (hx_follows_panel) {
+		hx_panel_follower.funcs = &himax_panel_follower_funcs;
+		ret = drm_panel_add_follower(&spi->dev, &hx_panel_follower);
+		if (ret)
+			goto err;
+	} else {
+		ret = himax_chip_common_init();
+		if (ret < 0)
+			goto err;
+		dev_info(&spi->dev, "HX83112F touch ready, irq %d\n", spi->irq);
+	}
 	return 0;
 err:
 	kfree(ts);
@@ -260,19 +305,27 @@ err:
 
 static void himax_hx83112f_remove(struct spi_device *spi)
 {
+	if (hx_follows_panel)
+		drm_panel_remove_follower(&hx_panel_follower);
 	if (g_hx_chip_inited)
 		himax_chip_common_deinit();
+	else
+		kfree(spi_get_drvdata(spi));
+	private_ts = NULL;
+	g_hx_chip_inited = false;
 }
 
 static int himax_hx83112f_suspend(struct device *dev)
 {
-	himax_chip_common_suspend(private_ts);
+	if (!hx_follows_panel && g_hx_chip_inited)
+		himax_chip_common_suspend(private_ts);
 	return 0;
 }
 
 static int himax_hx83112f_resume(struct device *dev)
 {
-	himax_chip_common_resume(private_ts);
+	if (!hx_follows_panel && g_hx_chip_inited)
+		himax_chip_common_resume(private_ts);
 	return 0;
 }
 

@@ -1405,6 +1405,7 @@ config TOUCHSCREEN_ZINITIX
 config TOUCHSCREEN_HIMAX_HX83112F
 	tristate "Himax HX83112F zero-flash SPI touchscreen"
 	depends on SPI && OF
+	depends on DRM_PANEL || !DRM_PANEL
 	select FW_LOADER
 	help
 	  Himax HX83112F in-cell (TDDI) touch controller on SPI, as used in

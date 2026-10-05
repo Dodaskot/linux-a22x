@@ -96,7 +96,7 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 
-			panel@0 {
+			panel_ml: panel@0 {
 				compatible = "jdi,hx83112f-a22x";
 				reg = <0>;
 				reset-gpios = <&pio_ml 86 GPIO_ACTIVE_LOW>;
@@ -121,6 +121,12 @@
 
 &backlight {
 	status = "disabled";
+};
+
+&spi1 {
+	novatek@0 {
+		panel = <&panel_ml>;
+	};
 };
 
 &spm {

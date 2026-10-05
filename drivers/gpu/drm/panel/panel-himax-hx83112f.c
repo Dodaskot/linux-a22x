@@ -244,7 +244,9 @@ static int hx83112f_disable(struct drm_panel *panel)
 	ctx->enabled = false;
 	ret = mipi_dsi_dcs_set_display_off(ctx->dsi);
 	msleep(50);
-	return ret;
+	if (ret < 0)
+		dev_warn(&ctx->dsi->dev, "Display-off command failed: %d\n", ret);
+	return 0;
 }
 
 static int hx83112f_unprepare(struct drm_panel *panel)
@@ -260,7 +262,9 @@ static int hx83112f_unprepare(struct drm_panel *panel)
 	gpiod_set_value_cansleep(ctx->reset, 1);
 	hx83112f_power_off(ctx);
 
-	return dsi_ctx.accum_err;
+	if (dsi_ctx.accum_err)
+		dev_warn(&ctx->dsi->dev, "Sleep command failed: %d\n", dsi_ctx.accum_err);
+	return 0;
 }
 
 #define HX83112F_MODE(vfp, fps) { \
