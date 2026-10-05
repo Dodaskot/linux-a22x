@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/panel/jdi,hx83112f-a22x.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: JDI HX83112F C-PHY panel for Samsung Galaxy A22 5G
+
+maintainers:
+  - Dodaskot <pessdres@gmail.com>
+
+description: |
+  The 1080x2408 LCD uses three C-PHY trios and supports 60 and 90 Hz.
+  Panel enable and positive and negative bias rails must be sequenced.
+  The reset signal is active low. Touch has its own reset signal.
+
+allOf:
+  - $ref: panel-common.yaml#
+
+properties:
+  compatible:
+    const: jdi,hx83112f-a22x
+
+  reg:
+    maxItems: 1
+
+  vdd-supply:
+    description: Panel power enable supply
+
+  vsp-supply:
+    description: Positive LCD bias supply
+
+  vsn-supply:
+    description: Negative LCD bias supply
+
+  reset-gpios:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - vdd-supply
+  - vsp-supply
+  - vsn-supply
+  - reset-gpios
+  - port
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+    dsi {
+        #address-cells = <1>;
+        #size-cells = <0>;
+        panel@0 {
+            compatible = "jdi,hx83112f-a22x";
+            reg = <0>;
+            vdd-supply = <&panel_vdd>;
+            vsp-supply = <&panel_vsp>;
+            vsn-supply = <&panel_vsn>;
+            reset-gpios = <&pio 86 GPIO_ACTIVE_LOW>;
+            port {
+                panel_in: endpoint {
+                    remote-endpoint = <&dsi_out>;
+                };
+            };
+        };
+    };

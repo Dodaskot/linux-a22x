@@ -10,10 +10,12 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/reset-controller.h>
 #include <linux/soc/mediatek/mtk-mmsys.h>
 
 #include "mtk-mmsys.h"
+#include "mt6833-mmsys.h"
 #include "mt8167-mmsys.h"
 #include "mt8173-mmsys.h"
 #include "mt8183-mmsys.h"
@@ -39,6 +41,13 @@ static const struct mtk_mmsys_driver_data mt2712_mmsys_driver_data = {
 
 static const struct mtk_mmsys_driver_data mt6779_mmsys_driver_data = {
 	.clk_driver = "clk-mt6779-mm",
+};
+
+static const struct mtk_mmsys_driver_data mt6833_mmsys_driver_data = {
+	.clk_driver = "clk-mt6833-mm",
+	.need_runtime_pm = true,
+	.routes = mt6833_mmsys_routes,
+	.num_routes = ARRAY_SIZE(mt6833_mmsys_routes),
 };
 
 static const struct mtk_mmsys_driver_data mt6795_mmsys_driver_data = {
@@ -427,6 +436,11 @@ static int mtk_mmsys_probe(struct platform_device *pdev)
 		dev_dbg(dev, "No mediatek,gce-client-reg!\n");
 
 	platform_set_drvdata(pdev, mmsys);
+	if (mmsys->data->need_runtime_pm) {
+		ret = devm_pm_runtime_enable(dev);
+		if (ret)
+			return ret;
+	}
 
 	clks = platform_device_register_data(&pdev->dev, mmsys->data->clk_driver,
 					     PLATFORM_DEVID_AUTO, NULL, 0);
@@ -458,6 +472,7 @@ static void mtk_mmsys_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id of_match_mtk_mmsys[] = {
+	{ .compatible = "mediatek,mt6833-display", .data = &mt6833_mmsys_driver_data },
 	{ .compatible = "mediatek,mt2701-mmsys", .data = &mt2701_mmsys_driver_data },
 	{ .compatible = "mediatek,mt2712-mmsys", .data = &mt2712_mmsys_driver_data },
 	{ .compatible = "mediatek,mt6779-mmsys", .data = &mt6779_mmsys_driver_data },

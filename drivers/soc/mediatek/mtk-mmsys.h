@@ -111,6 +111,7 @@ struct mtk_mmsys_routes {
  * @num_routes: Array size of the routes.
  * @sw0_rst_offset: Register offset for the reset control.
  * @num_resets: Number of reset bits that are defined
+ * @need_runtime_pm: Whether to enable runtime PM for the MMSYS parent.
  * @is_vppsys: Whether the mmsys is VPPSYS (Video Processing Pipe)
  *             or VDOSYS (Video). Only VDOSYS needs to be added to drm driver.
  * @vsync_len: VSYNC length of the MIXER.
@@ -138,6 +139,7 @@ struct mtk_mmsys_driver_data {
 	const u8 *rst_tb;
 	const u32 num_resets;
 	const bool is_vppsys;
+	const bool need_runtime_pm;
 	const u8 vsync_len;
 };
 

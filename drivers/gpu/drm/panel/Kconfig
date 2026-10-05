@@ -217,6 +217,14 @@ config DRM_PANEL_HIMAX_HX83112A
 	  Say Y here if you want to enable support for Himax HX83112A-based
 	  display panels, such as the one found in the Fairphone 4 smartphone.
 
+config DRM_PANEL_HIMAX_HX83112F
+	tristate "JDI HX83112F C-PHY panel for Galaxy A22 5G"
+	depends on OF && DRM_MIPI_DSI && BACKLIGHT_CLASS_DEVICE
+	select REGULATOR
+	help
+	  Enable the 1080x2408 JDI HX83112F panel on Samsung Galaxy A22 5G.
+	  The panel uses three C-PHY trios and supports 60 and 90 Hz modes.
+
 config DRM_PANEL_HIMAX_HX83112B
 	tristate "Himax HX83112B-based DSI panel"
 	depends on OF

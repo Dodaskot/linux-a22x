@@ -30,6 +30,7 @@ properties:
           - mediatek,mt8183-dsi
           - mediatek,mt8186-dsi
           - mediatek,mt8188-dsi
+          - mediatek,mt6833-dsi-cphy
       - items:
           - enum:
               - mediatek,mt6795-dsi
@@ -48,6 +49,15 @@ properties:
 
   power-domains:
     maxItems: 1
+
+  mediatek,cphy-timing:
+    $ref: /schemas/types.yaml#/definitions/uint32-array
+    description: C-PHY HS zero and HS trail timing in controller cycles.
+    items:
+      - minimum: 1
+        maximum: 255
+      - minimum: 1
+        maximum: 255
 
   clocks:
     items:

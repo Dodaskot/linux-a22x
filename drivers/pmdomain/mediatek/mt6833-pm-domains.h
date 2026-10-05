@@ -108,6 +108,26 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6833[] = {
 				    MT8192_TOP_AXI_PROT_EN_2_STA1),
 		},
 	},
+	[MT6833_POWER_DOMAIN_DISP] = {
+		.name = "disp",
+		.sta_mask = BIT(20),
+		.ctl_offs = 0x0354,
+		.pwr_sta_offs = 0x016c,
+		.pwr_sta2nd_offs = 0x0170,
+		.sram_pdn_bits = BIT(8),
+		.sram_pdn_ack_bits = BIT(12),
+		.bp_cfg = {
+			BUS_PROT_WR_IGN(INFRA,
+				BIT(0) | BIT(2) | BIT(10) | BIT(12) | BIT(16) | BIT(24) | BIT(26),
+				0x2d4, 0x2d8, 0x2ec),
+			BUS_PROT_WR_IGN(INFRA, BIT(8), 0xdcc, 0xdd0, 0xdd8),
+			BUS_PROT_WR_IGN(INFRA, BIT(6) | BIT(23), 0x2a0, 0x2a4, 0x228),
+			BUS_PROT_WR_IGN(INFRA,
+				BIT(1) | BIT(3) | BIT(17) | BIT(25) | BIT(27),
+				0x2d4, 0x2d8, 0x2ec),
+			BUS_PROT_WR_IGN(INFRA, BIT(9), 0xdcc, 0xdd0, 0xdd8),
+		},
+	},
 	/* same SPM/bus-protection layout as MT8192 (vendor clk-mt6833-pg.c SYS_CONN) */
 	[MT6833_POWER_DOMAIN_CONN] = {
 		.name = "conn",

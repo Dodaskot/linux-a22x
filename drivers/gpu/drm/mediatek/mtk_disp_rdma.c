@@ -72,6 +72,7 @@ struct mtk_disp_rdma_data {
 	unsigned int fifo_size;
 	const u32 *formats;
 	size_t num_formats;
+	bool has_fabric_clks;
 };
 
 /*
@@ -80,6 +81,7 @@ struct mtk_disp_rdma_data {
  */
 struct mtk_disp_rdma {
 	struct clk			*clk;
+	struct clk_bulk_data fabric_clks[4];
 	void __iomem			*regs;
 	struct cmdq_client_reg		cmdq_reg;
 	const struct mtk_disp_rdma_data	*data;
@@ -160,7 +162,17 @@ int mtk_rdma_clk_enable(struct device *dev)
 {
 	struct mtk_disp_rdma *rdma = dev_get_drvdata(dev);
 
-	return clk_prepare_enable(rdma->clk);
+	int ret;
+
+	if (rdma->data->has_fabric_clks) {
+		ret = clk_bulk_prepare_enable(ARRAY_SIZE(rdma->fabric_clks), rdma->fabric_clks);
+		if (ret)
+			return ret;
+	}
+	ret = clk_prepare_enable(rdma->clk);
+	if (ret && rdma->data->has_fabric_clks)
+		clk_bulk_disable_unprepare(ARRAY_SIZE(rdma->fabric_clks), rdma->fabric_clks);
+	return ret;
 }
 
 void mtk_rdma_clk_disable(struct device *dev)
@@ -168,6 +180,8 @@ void mtk_rdma_clk_disable(struct device *dev)
 	struct mtk_disp_rdma *rdma = dev_get_drvdata(dev);
 
 	clk_disable_unprepare(rdma->clk);
+	if (rdma->data->has_fabric_clks)
+		clk_bulk_disable_unprepare(ARRAY_SIZE(rdma->fabric_clks), rdma->fabric_clks);
 }
 
 void mtk_rdma_start(struct device *dev)
@@ -355,6 +369,15 @@ static int mtk_disp_rdma_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, ret, "Failed to request irq %d\n", irq);
 
 	priv->data = of_device_get_match_data(dev);
+	if (priv->data->has_fabric_clks) {
+		priv->fabric_clks[0].id = "smi-infra";
+		priv->fabric_clks[1].id = "smi-common";
+		priv->fabric_clks[2].id = "smi-gals";
+		priv->fabric_clks[3].id = "smi-iommu";
+		ret = devm_clk_bulk_get(dev, ARRAY_SIZE(priv->fabric_clks), priv->fabric_clks);
+		if (ret)
+			return dev_err_probe(dev, ret, "Failed to get SMI fabric clocks\n");
+	}
 
 	platform_set_drvdata(pdev, priv);
 
@@ -388,6 +411,13 @@ static const struct mtk_disp_rdma_data mt8173_rdma_driver_data = {
 	.num_formats = ARRAY_SIZE(mt8173_formats),
 };
 
+static const struct mtk_disp_rdma_data mt6833_rdma_driver_data = {
+	.fifo_size = 35 * SZ_1K,
+	.formats = mt8173_formats,
+	.num_formats = ARRAY_SIZE(mt8173_formats),
+	.has_fabric_clks = true,
+};
+
 static const struct mtk_disp_rdma_data mt8183_rdma_driver_data = {
 	.fifo_size = 5 * SZ_1K,
 	.formats = mt8173_formats,
@@ -401,6 +431,7 @@ static const struct mtk_disp_rdma_data mt8195_rdma_driver_data = {
 };
 
 static const struct of_device_id mtk_disp_rdma_driver_dt_match[] = {
+	{ .compatible = "mediatek,mt6833-disp-rdma", .data = &mt6833_rdma_driver_data },
 	{ .compatible = "mediatek,mt2701-disp-rdma",
 	  .data = &mt2701_rdma_driver_data},
 	{ .compatible = "mediatek,mt8173-disp-rdma",
