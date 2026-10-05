@@ -271,9 +271,9 @@ static int scpsys_bus_protect_enable(struct scpsys_domain *pd, u8 flags)
 			ret = scpsys_bus_protect_set(pd, bpd);
 		if (ret) {
 			dev_err_ratelimited(pd->scpsys->dev,
-				"%s bus protection step %d (reg %#x mask %#x) failed: %d\n",
-				pd->data->name, i, bpd->bus_prot_sta,
-				bpd->bus_prot_sta_mask, ret);
+					    "%s bus protection step %d (reg %#x mask %#x) failed: %d\n",
+					    pd->data->name, i, bpd->bus_prot_sta,
+					    bpd->bus_prot_sta_mask, ret);
 			return ret;
 		}
 	}

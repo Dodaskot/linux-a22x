@@ -110,6 +110,8 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6833[] = {
 	},
 	[MT6833_POWER_DOMAIN_DISP] = {
 		.name = "disp",
+		/* MM gate registers must only be accessed after bus release. */
+		.caps = MTK_SCPD_STRICT_BUS_PROTECTION,
 		.sta_mask = BIT(20),
 		.ctl_offs = 0x0354,
 		.pwr_sta_offs = 0x016c,
