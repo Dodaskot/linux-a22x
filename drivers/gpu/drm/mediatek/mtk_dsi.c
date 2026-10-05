@@ -12,6 +12,7 @@
 #include <linux/of_platform.h>
 #include <linux/phy/phy.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/reset.h>
 #include <linux/units.h>
 
@@ -224,6 +225,7 @@ struct mtk_dsi {
 	struct videomode vm;
 	struct mtk_phy_timing phy_timing;
 	int refcount;
+	int irq;
 	bool enabled;
 	bool lanes_ready;
 	u32 irq_data;
@@ -804,9 +806,15 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
 		goto err_refcount;
 	}
 
+	if (dsi->driver_data->is_cphy) {
+		ret = pm_runtime_resume_and_get(dev);
+		if (ret < 0)
+			goto err_refcount;
+	}
+
 	ret = phy_power_on(dsi->phy);
 	if (ret)
-		goto err_refcount;
+		goto err_runtime_pm;
 
 	ret = clk_prepare_enable(dsi->engine_clk);
 	if (ret < 0) {
@@ -827,10 +835,14 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
 		       dsi->regs + dsi->driver_data->reg_shadow_dbg_off);
 
 	mtk_dsi_reset_engine(dsi);
-	if (dsi->driver_data->is_cphy)
+	if (dsi->driver_data->is_cphy) {
+		/* LK may leave video mode set while the reset engine is stopped. */
+		mtk_dsi_stop(dsi);
+		mtk_dsi_set_cmd_mode(dsi);
 		mtk_dsi_cphy_timconfig(dsi);
-	else
+	} else {
 		mtk_dsi_phy_timconfig(dsi);
+	}
 
 	mtk_dsi_ps_control(dsi, true);
 	mtk_dsi_set_vm_cmd(dsi);
@@ -842,6 +854,9 @@ err_disable_engine_clk:
 	clk_disable_unprepare(dsi->engine_clk);
 err_phy_power_off:
 	phy_power_off(dsi->phy);
+err_runtime_pm:
+	if (dsi->driver_data->is_cphy)
+		pm_runtime_put_sync(dev);
 err_refcount:
 	dsi->refcount--;
 	return ret;
@@ -877,6 +892,7 @@ static void mtk_dsi_poweroff(struct mtk_dsi *dsi)
 	if (dsi->driver_data->is_cphy) {
 		writel(0, dsi->regs + DSI_INTEN);
 		writel(0, dsi->regs + DSI_INTSTA);
+		synchronize_irq(dsi->irq);
 	}
 
 	clk_disable_unprepare(dsi->engine_clk);
@@ -885,6 +901,8 @@ static void mtk_dsi_poweroff(struct mtk_dsi *dsi)
 	phy_power_off(dsi->phy);
 
 	dsi->lanes_ready = false;
+	if (dsi->driver_data->is_cphy)
+		pm_runtime_put_sync(dsi->host.dev);
 }
 
 static void mtk_output_dsi_enable(struct mtk_dsi *dsi)
@@ -1371,19 +1389,25 @@ static int mtk_dsi_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, dsi);
 
-	ret = mipi_dsi_host_register(&dsi->host);
-	if (ret < 0)
-		return dev_err_probe(dev, ret, "Failed to register DSI host\n");
-
+	dsi->irq = irq_num;
 	ret = devm_request_irq(&pdev->dev, irq_num, mtk_dsi_irq,
 			       IRQF_TRIGGER_NONE, dev_name(&pdev->dev), dsi);
-	if (ret) {
-		mipi_dsi_host_unregister(&dsi->host);
+	if (ret)
 		return dev_err_probe(&pdev->dev, ret, "Failed to request DSI irq\n");
+
+	if (dsi->driver_data->is_cphy) {
+		ret = devm_pm_runtime_enable(dev);
+		if (ret)
+			return ret;
 	}
 
 	dsi->bridge.of_node = dev->of_node;
 	dsi->bridge.type = DRM_MODE_CONNECTOR_DSI;
+
+	/* Panel attachment can immediately trigger a DRM modeset. */
+	ret = mipi_dsi_host_register(&dsi->host);
+	if (ret < 0)
+		return dev_err_probe(dev, ret, "Failed to register DSI host\n");
 
 	return 0;
 }

@@ -8,6 +8,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/regmap.h>
 #include <linux/soc/mediatek/mtk-mmsys.h>
 #include <linux/soc/mediatek/mtk-mutex.h>
@@ -356,6 +357,7 @@ struct mtk_mutex_data {
 	const u16 mutex_mod1_reg;
 	const u16 mutex_sof_reg;
 	const bool no_clk;
+	bool need_runtime_pm;
 };
 
 struct mtk_mutex_ctx {
@@ -789,6 +791,7 @@ static const struct mtk_mutex_data mt6833_mutex_driver_data = {
 	.mutex_mod_reg = 0x30,
 	.mutex_mod1_reg = 0x34,
 	.mutex_sof_reg = 0x2c,
+	.need_runtime_pm = true,
 };
 
 static const struct mtk_mutex_data mt8183_mutex_driver_data = {
@@ -895,7 +898,19 @@ int mtk_mutex_prepare(struct mtk_mutex *mutex)
 {
 	struct mtk_mutex_ctx *mtx = container_of(mutex, struct mtk_mutex_ctx,
 						 mutex[mutex->id]);
-	return clk_prepare_enable(mtx->clk);
+	int ret;
+
+	if (mtx->data->need_runtime_pm) {
+		ret = pm_runtime_resume_and_get(mtx->dev);
+		if (ret < 0)
+			return ret;
+	}
+
+	ret = clk_prepare_enable(mtx->clk);
+	if (ret && mtx->data->need_runtime_pm)
+		pm_runtime_put_sync(mtx->dev);
+
+	return ret;
 }
 EXPORT_SYMBOL_GPL(mtk_mutex_prepare);
 
@@ -904,6 +919,8 @@ void mtk_mutex_unprepare(struct mtk_mutex *mutex)
 	struct mtk_mutex_ctx *mtx = container_of(mutex, struct mtk_mutex_ctx,
 						 mutex[mutex->id]);
 	clk_disable_unprepare(mtx->clk);
+	if (mtx->data->need_runtime_pm)
+		pm_runtime_put_sync(mtx->dev);
 }
 EXPORT_SYMBOL_GPL(mtk_mutex_unprepare);
 
@@ -1121,6 +1138,7 @@ static int mtk_mutex_probe(struct platform_device *pdev)
 	mtx = devm_kzalloc(dev, sizeof(*mtx), GFP_KERNEL);
 	if (!mtx)
 		return -ENOMEM;
+	mtx->dev = dev;
 
 	for (i = 0; i < MTK_MUTEX_MAX_HANDLES; i++)
 		mtx->mutex[i].id = i;
@@ -1146,6 +1164,8 @@ static int mtk_mutex_probe(struct platform_device *pdev)
 		dev_dbg(dev, "No mediatek,gce-client-reg!\n");
 
 	platform_set_drvdata(pdev, mtx);
+	if (mtx->data->need_runtime_pm)
+		return devm_pm_runtime_enable(dev);
 
 	return 0;
 }
