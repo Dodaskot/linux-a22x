@@ -69,7 +69,8 @@
 
 		disp_rdma0_ml: rdma@14007000 {
 			compatible = "mediatek,mt6833-disp-rdma";
-			reg = <0 0x14007000 0 0x1000>;
+			reg = <0 0x14007000 0 0x1000>, <0 0x14004000 0 0x1000>;
+			reg-names = "rdma", "larb";
 			interrupts = <GIC_SPI 257 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&mm_clk_ml CLK_MM_DISP_RDMA0>,
 				 <&mm_clk_ml CLK_MM_SMI_INFRA>,
