@@ -47,7 +47,7 @@ properties:
 
   clocks:
     description: Unused board peripheral clocks retained by the bootloader
-    maxItems: 7
+    maxItems: 13
 
   clock-names:
     items:
@@ -58,6 +58,12 @@ properties:
       - const: boot-spi5
       - const: boot-spi6
       - const: boot-spi7
+      - const: boot-mdp-rdma0
+      - const: boot-mdp-rdma1
+      - const: boot-mdp-smi0
+      - const: boot-mdp-wrot0
+      - const: boot-mdp-wrot1
+      - const: boot-mdp-fake0
 
   mediatek,firmware-config:
     $ref: /schemas/types.yaml#/definitions/phandle

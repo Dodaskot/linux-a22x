@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/clock/mediatek,mt6833-mdp-clocks.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: MediaTek MT6833 media data path clocks
+
+maintainers:
+  - Dodaskot <pessdres@gmail.com>
+
+description: |
+  Clock gates of the MT6833 MDP island. Its inherited power state is
+  checked through the SPM syscon before registers are accessed; this
+  interface does not implement an unverified island power-switch sequence.
+
+properties:
+  compatible:
+    const: mediatek,mt6833-mdp-clocks
+
+  reg:
+    maxItems: 1
+
+  '#clock-cells':
+    const: 1
+
+  clocks:
+    maxItems: 1
+
+  clock-names:
+    const: bus
+
+  mediatek,spm:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: SPM syscon containing both MDP power status registers
+
+required:
+  - compatible
+  - reg
+  - '#clock-cells'
+  - clocks
+  - clock-names
+  - mediatek,spm
+
+additionalProperties: false
