@@ -492,6 +492,24 @@ static int panfrost_device_runtime_suspend(struct device *dev)
 	return 0;
 }
 
+static int panfrost_system_clk_enable(struct panfrost_device *pfdev,
+				      struct clk *clock)
+{
+	if (pfdev->comp->pm_features & BIT(GPU_PM_CLK_UNPREPARE))
+		return clk_prepare_enable(clock);
+
+	return clk_enable(clock);
+}
+
+static void panfrost_system_clk_disable(struct panfrost_device *pfdev,
+				       struct clk *clock)
+{
+	if (pfdev->comp->pm_features & BIT(GPU_PM_CLK_UNPREPARE))
+		clk_disable_unprepare(clock);
+	else
+		clk_disable(clock);
+}
+
 static int panfrost_device_resume(struct device *dev)
 {
 	struct panfrost_device *pfdev = dev_get_drvdata(dev);
@@ -509,12 +527,12 @@ static int panfrost_device_resume(struct device *dev)
 	}
 
 	if (pfdev->comp->pm_features & BIT(GPU_PM_CLK_DIS)) {
-		ret = clk_enable(pfdev->clock);
+		ret = panfrost_system_clk_enable(pfdev, pfdev->clock);
 		if (ret)
 			goto err_clk;
 
 		if (pfdev->bus_clock) {
-			ret = clk_enable(pfdev->bus_clock);
+			ret = panfrost_system_clk_enable(pfdev, pfdev->bus_clock);
 			if (ret)
 				goto err_bus_clk;
 		}
@@ -528,10 +546,10 @@ static int panfrost_device_resume(struct device *dev)
 
 err_resume:
 	if (pfdev->comp->pm_features & BIT(GPU_PM_CLK_DIS) && pfdev->bus_clock)
-		clk_disable(pfdev->bus_clock);
+		panfrost_system_clk_disable(pfdev, pfdev->bus_clock);
 err_bus_clk:
 	if (pfdev->comp->pm_features & BIT(GPU_PM_CLK_DIS))
-		clk_disable(pfdev->clock);
+		panfrost_system_clk_disable(pfdev, pfdev->clock);
 err_clk:
 	if (pfdev->comp->pm_features & BIT(GPU_PM_VREG_OFF))
 		dev_pm_opp_set_opp(dev, NULL);
@@ -549,9 +567,9 @@ static int panfrost_device_suspend(struct device *dev)
 
 	if (pfdev->comp->pm_features & BIT(GPU_PM_CLK_DIS)) {
 		if (pfdev->bus_clock)
-			clk_disable(pfdev->bus_clock);
+			panfrost_system_clk_disable(pfdev, pfdev->bus_clock);
 
-		clk_disable(pfdev->clock);
+		panfrost_system_clk_disable(pfdev, pfdev->clock);
 	}
 
 	if (pfdev->comp->pm_features & BIT(GPU_PM_VREG_OFF))
