@@ -39,7 +39,12 @@ static int __init cpu_psci_cpu_prepare(unsigned int cpu)
 static int cpu_psci_cpu_boot(unsigned int cpu)
 {
 	phys_addr_t pa_secondary_entry = __pa_symbol(secondary_entry);
-	int err = psci_ops.cpu_on(cpu_logical_map(cpu), pa_secondary_entry);
+	int err;
+
+	pr_debug("CPU%d CPU_ON mpidr=%llx entry=%pa\n", cpu,
+		 cpu_logical_map(cpu), &pa_secondary_entry);
+	err = psci_ops.cpu_on(cpu_logical_map(cpu), pa_secondary_entry);
+	pr_debug("CPU%d CPU_ON returned %d\n", cpu, err);
 	if (err && err != -EPERM)
 		pr_err("failed to boot CPU%d (%d)\n", cpu, err);
 
@@ -121,4 +126,3 @@ const struct cpu_operations cpu_psci_ops = {
 	.cpu_kill	= cpu_psci_cpu_kill,
 #endif
 };
-

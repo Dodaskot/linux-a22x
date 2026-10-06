@@ -71,6 +71,7 @@ struct mt6833_lpm {
 	bool resources_ready;
 	bool eem_fixed_mode;
 	bool deep_enabled;
+	bool stage_only;
 	unsigned int suspend_entries;
 	int suspend_result;
 	u32 wake_irq_count;
@@ -125,7 +126,7 @@ static int mt6833_suspend_begin(suspend_state_t state)
 
 	mutex_lock(&lpm->lock);
 	/* PM invokes end even when begin rejects the request. */
-	if (!lpm->deep_enabled || !mt6833_lpm_prepared(lpm))
+	if (!lpm->stage_only && (!lpm->deep_enabled || !mt6833_lpm_prepared(lpm)))
 		return -EAGAIN;
 	/* Hold the lock until end: sysfs cannot change firmware policy while
 	 * devices/secondary CPUs are being suspended or restored.
@@ -139,6 +140,11 @@ static int mt6833_suspend_enter(suspend_state_t state)
 	struct mt6833_lpm *lpm = mt6833_suspend_lpm;
 	int ret;
 
+	/* Permit isolated generic PM diagnostics before firmware initialization.
+	 * Even a mistaken non-test request cannot enter CPU_SUSPEND in this mode.
+	 */
+	if (lpm->stage_only)
+		return -EOPNOTSUPP;
 	if (!mt6833_lpm_prepared(lpm))
 		return -EAGAIN;
 	writel(smp_processor_id(), lpm->mbox + MCUPM_WAKE_CPU * sizeof(u32));
@@ -201,12 +207,46 @@ static ssize_t deep_enabled_store(struct device *dev,
 		return -EOPNOTSUPP;
 #endif
 	guard(mutex)(&lpm->lock);
+	if (enable && lpm->stage_only)
+		return -EBUSY;
 	if (enable && !mt6833_lpm_prepared(lpm))
 		return -EAGAIN;
 	lpm->deep_enabled = enable;
 	return count;
 }
 static DEVICE_ATTR_RW(deep_enabled);
+
+static ssize_t stage_only_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	struct mt6833_lpm *lpm = dev_get_drvdata(dev);
+
+	guard(mutex)(&lpm->lock);
+	return sysfs_emit(buf, "%u\n", lpm->stage_only);
+}
+
+static ssize_t stage_only_store(struct device *dev,
+			       struct device_attribute *attr,
+			       const char *buf, size_t count)
+{
+	struct mt6833_lpm *lpm = dev_get_drvdata(dev);
+	bool enable;
+	int ret;
+
+	ret = kstrtobool(buf, &enable);
+	if (ret)
+		return ret;
+#ifdef MODULE
+	if (enable)
+		return -EOPNOTSUPP;
+#endif
+	guard(mutex)(&lpm->lock);
+	if (lpm->deep_enabled)
+		return -EBUSY;
+	lpm->stage_only = enable;
+	return count;
+}
+static DEVICE_ATTR_RW(stage_only);
 
 static ssize_t counters_show(struct device *dev, struct device_attribute *attr,
 			    char *buf)
@@ -804,6 +844,7 @@ static struct attribute *mt6833_lpm_attrs[] = {
 	&dev_attr_fixed_voltage.attr,
 	&dev_attr_power_policy.attr,
 	&dev_attr_deep_enabled.attr,
+	&dev_attr_stage_only.attr,
 	&dev_attr_counters.attr,
 	NULL,
 };
