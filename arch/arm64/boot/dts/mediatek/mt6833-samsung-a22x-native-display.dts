@@ -25,9 +25,26 @@
 			 <&infracfg_ao CLK_IFRAO_SPI4>,
 			 <&infracfg_ao CLK_IFRAO_SPI5>,
 			 <&infracfg_ao CLK_IFRAO_SPI6_CK>,
-			 <&infracfg_ao CLK_IFRAO_SPI7_CK>;
+			 <&infracfg_ao CLK_IFRAO_SPI7_CK>,
+			 <&mdp_clocks_ml CLK_MDP_RDMA0>,
+			 <&mdp_clocks_ml CLK_MDP_RDMA1>,
+			 <&mdp_clocks_ml CLK_MDP_SMI0>,
+			 <&mdp_clocks_ml CLK_MDP_WROT0>,
+			 <&mdp_clocks_ml CLK_MDP_WROT1>,
+			 <&mdp_clocks_ml CLK_MDP_FAKE_ENG0>;
 		clock-names = "boot-uart1", "boot-spi0", "boot-spi3", "boot-spi4",
-			      "boot-spi5", "boot-spi6", "boot-spi7";
+			      "boot-spi5", "boot-spi6", "boot-spi7",
+			      "boot-mdp-rdma0", "boot-mdp-rdma1", "boot-mdp-smi0",
+			      "boot-mdp-wrot0", "boot-mdp-wrot1", "boot-mdp-fake0";
+	};
+
+	mdp_clocks_ml: clock-controller@1f000000 {
+		compatible = "mediatek,mt6833-mdp-clocks";
+		reg = <0 0x1f000000 0 0x1000>;
+		#clock-cells = <1>;
+		clocks = <&topckgen CLK_TOP_MDP_SEL>;
+		clock-names = "bus";
+		mediatek,spm = <&scpsys_ml>;
 	};
 
 	aliases {

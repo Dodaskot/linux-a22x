@@ -125,7 +125,7 @@ obj-$(CONFIG_COMMON_CLK_MT8188_VPPSYS) += clk-mt8188-vpp0.o clk-mt8188-vpp1.o
 obj-$(CONFIG_COMMON_CLK_MT8188_WPESYS) += clk-mt8188-wpe.o
 obj-$(CONFIG_COMMON_CLK_MT6833) += clk-mt6833-apmixedsys.o clk-mt6833.o \
 				   clk-mt6833-imp_iic_wrap.o clk-mt6833-mfgcfg.o \
-				   clk-mt6833-mcu.o clk-mt6833-audsys.o clk-mt6833-mm.o
+				   clk-mt6833-mcu.o clk-mt6833-audsys.o clk-mt6833-mm.o clk-mt6833-mdp.o
 obj-$(CONFIG_COMMON_CLK_MT8192) += clk-mt8192-apmixedsys.o clk-mt8192.o
 obj-$(CONFIG_COMMON_CLK_MT8192_AUDSYS) += clk-mt8192-aud.o
 obj-$(CONFIG_COMMON_CLK_MT8192_CAMSYS) += clk-mt8192-cam.o
