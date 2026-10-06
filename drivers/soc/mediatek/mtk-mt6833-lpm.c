@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* MT6833 boot-loaded firmware coordination and guarded suspend bring-up. */
 #include <linux/arm-smccc.h>
+#include <linux/clk.h>
 #include <linux/cpu.h>
 #include <linux/cpu_pm.h>
 #include <linux/io.h>
@@ -52,6 +53,11 @@
 #define MCUPM_EEM_ENABLE_OFFSET	0x4fe
 #define MCUPM_SN_ENABLE_OFFSET	0x4ff
 
+static const char * const boot_peripheral_clock_names[] = {
+	"boot-uart1", "boot-spi0", "boot-spi3", "boot-spi4",
+	"boot-spi5", "boot-spi6", "boot-spi7",
+};
+
 struct mt6833_lpm {
 	struct device *dev;
 	void __iomem *mbox;
@@ -67,6 +73,9 @@ struct mt6833_lpm {
 	struct resource shared_res;
 	struct mutex lock;
 	struct pm_qos_request latency;
+	struct clk_bulk_data boot_clocks[ARRAY_SIZE(boot_peripheral_clock_names)];
+	bool boot_clocks_held;
+	bool boot_peripherals_gated;
 	bool idle_blocked;
 	bool platform_initialized;
 	bool ready;
@@ -401,6 +410,56 @@ static ssize_t counters_show(struct device *dev, struct device_attribute *attr,
 	return len;
 }
 static DEVICE_ATTR_ADMIN_RO(counters);
+
+static ssize_t boot_peripherals_gated_show(struct device *dev,
+					 struct device_attribute *attr, char *buf)
+{
+	struct mt6833_lpm *lpm = dev_get_drvdata(dev);
+
+	guard(mutex)(&lpm->lock);
+	return sysfs_emit(buf, "%u\n", lpm->boot_peripherals_gated);
+}
+
+static ssize_t boot_peripherals_gated_store(struct device *dev,
+					  struct device_attribute *attr,
+					  const char *buf, size_t count)
+{
+	struct mt6833_lpm *lpm = dev_get_drvdata(dev);
+	bool gate;
+	int ret;
+
+	ret = kstrtobool(buf, &gate);
+	if (ret)
+		return ret;
+	guard(mutex)(&lpm->lock);
+	if (!lpm->idle_blocked || lpm->deep_enabled || lpm->stage_only ||
+	    lpm->s2idle_enabled)
+		return -EBUSY;
+	if (gate == lpm->boot_peripherals_gated)
+		return count;
+	/* Only the seven board-unused UART/SPI gates are managed here. Taking
+	 * and releasing a CCF reference removes inherited hardware enables;
+	 * any real consumer's references continue to protect its clock.
+	 * Do not globally clean up boot clocks until all dependencies are known.
+	 */
+	if (!lpm->boot_clocks_held) {
+		ret = clk_bulk_prepare_enable(ARRAY_SIZE(lpm->boot_clocks),
+					      lpm->boot_clocks);
+		if (ret)
+			return ret;
+		lpm->boot_clocks_held = true;
+	}
+	if (gate) {
+		clk_bulk_disable_unprepare(ARRAY_SIZE(lpm->boot_clocks),
+					   lpm->boot_clocks);
+		lpm->boot_clocks_held = false;
+	}
+	lpm->boot_peripherals_gated = gate;
+	dev_info(dev, "board-unused peripheral clock cleanup %s\n",
+		 gate ? "enabled" : "reverted");
+	return count;
+}
+static DEVICE_ATTR_RW(boot_peripherals_gated);
 
 static struct device_node *mt6833_firmware_config(struct device *dev)
 {
@@ -987,6 +1046,7 @@ static struct attribute *mt6833_lpm_attrs[] = {
 	&dev_attr_s2idle_enabled.attr,
 	&dev_attr_s2idle_counters.attr,
 	&dev_attr_counters.attr,
+	&dev_attr_boot_peripherals_gated.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(mt6833_lpm);
@@ -996,6 +1056,8 @@ static int mt6833_lpm_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct mt6833_lpm *lpm;
 	struct resource *res;
+	unsigned int i;
+	int ret;
 
 	/* The shared EEM ABI and policy below are verified for A226B firmware. */
 	if (!of_machine_is_compatible("samsung,a22x"))
@@ -1007,6 +1069,11 @@ static int mt6833_lpm_probe(struct platform_device *pdev)
 	if (!lpm)
 		return -ENOMEM;
 	lpm->dev = dev;
+	for (i = 0; i < ARRAY_SIZE(lpm->boot_clocks); i++)
+		lpm->boot_clocks[i].id = boot_peripheral_clock_names[i];
+	ret = devm_clk_bulk_get(dev, ARRAY_SIZE(lpm->boot_clocks), lpm->boot_clocks);
+	if (ret)
+		return dev_err_probe(dev, ret, "missing board peripheral clocks\n");
 	lpm->s2idle_attempts = devm_kcalloc(dev, nr_cpu_ids,
 					 sizeof(*lpm->s2idle_attempts), GFP_KERNEL);
 	lpm->s2idle_resumes = devm_kcalloc(dev, nr_cpu_ids,
