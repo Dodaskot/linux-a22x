@@ -61,6 +61,14 @@ static const char * const boot_peripheral_clock_names[] = {
 	"boot-mmpll",
 };
 
+static const char * const boot_ufs_clock_names[] = {
+	"boot-ufs", "boot-unipro", "boot-ufs-bclk", "boot-ufs-aes",
+};
+
+static const char * const boot_ufs_source_names[] = {
+	"boot-ufs-source", "boot-ufs-aes-source",
+};
+
 struct mt6833_lpm {
 	struct device *dev;
 	void __iomem *mbox;
@@ -79,6 +87,12 @@ struct mt6833_lpm {
 	struct clk_bulk_data boot_clocks[ARRAY_SIZE(boot_peripheral_clock_names)];
 	bool boot_clocks_held;
 	bool boot_peripherals_gated;
+	struct clk_bulk_data ufs_clocks[ARRAY_SIZE(boot_ufs_clock_names)];
+	struct clk_bulk_data ufs_sources[ARRAY_SIZE(boot_ufs_source_names)];
+	bool ufs_unused;
+	bool ufs_sources_held;
+	bool ufs_clocks_held;
+	bool boot_ufs_gated;
 	bool idle_blocked;
 	bool platform_initialized;
 	bool ready;
@@ -463,6 +477,65 @@ static ssize_t boot_peripherals_gated_store(struct device *dev,
 	return count;
 }
 static DEVICE_ATTR_RW(boot_peripherals_gated);
+
+static ssize_t boot_ufs_gated_show(struct device *dev,
+				 struct device_attribute *attr, char *buf)
+{
+	struct mt6833_lpm *lpm = dev_get_drvdata(dev);
+
+	guard(mutex)(&lpm->lock);
+	return sysfs_emit(buf, "%u\n", lpm->boot_ufs_gated);
+}
+
+static ssize_t boot_ufs_gated_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	struct mt6833_lpm *lpm = dev_get_drvdata(dev);
+	bool gate;
+	int ret;
+
+	ret = kstrtobool(buf, &gate);
+	if (ret)
+		return ret;
+	guard(mutex)(&lpm->lock);
+	if (!lpm->ufs_unused)
+		return -ENODEV;
+	if (!lpm->idle_blocked || lpm->deep_enabled || lpm->stage_only ||
+	    lpm->s2idle_enabled)
+		return -EBUSY;
+	if (gate == lpm->boot_ufs_gated)
+		return count;
+	/* Hold both source muxes throughout this scoped gate experiment. This
+	 * prevents releasing inherited parent PLL enables shared with eMMC and
+	 * other peripherals. Only the four board-unused UFS leaf gates change.
+	 * The source references remain owned until a clean reboot.
+	 */
+	if (!lpm->ufs_sources_held) {
+		ret = clk_bulk_prepare_enable(ARRAY_SIZE(lpm->ufs_sources),
+					      lpm->ufs_sources);
+		if (ret)
+			return ret;
+		lpm->ufs_sources_held = true;
+	}
+	if (!lpm->ufs_clocks_held) {
+		ret = clk_bulk_prepare_enable(ARRAY_SIZE(lpm->ufs_clocks),
+					      lpm->ufs_clocks);
+		if (ret)
+			return ret;
+		lpm->ufs_clocks_held = true;
+	}
+	if (gate) {
+		clk_bulk_disable_unprepare(ARRAY_SIZE(lpm->ufs_clocks),
+					   lpm->ufs_clocks);
+		lpm->ufs_clocks_held = false;
+	}
+	lpm->boot_ufs_gated = gate;
+	dev_info(dev, "board-unused UFS leaf clocks %s; sources retained\n",
+		 gate ? "gated" : "restored");
+	return count;
+}
+static DEVICE_ATTR_RW(boot_ufs_gated);
 
 static struct device_node *mt6833_firmware_config(struct device *dev)
 {
@@ -1050,6 +1123,7 @@ static struct attribute *mt6833_lpm_attrs[] = {
 	&dev_attr_s2idle_counters.attr,
 	&dev_attr_counters.attr,
 	&dev_attr_boot_peripherals_gated.attr,
+	&dev_attr_boot_ufs_gated.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(mt6833_lpm);
@@ -1077,6 +1151,33 @@ static int mt6833_lpm_probe(struct platform_device *pdev)
 	ret = devm_clk_bulk_get(dev, ARRAY_SIZE(lpm->boot_clocks), lpm->boot_clocks);
 	if (ret)
 		return dev_err_probe(dev, ret, "missing board peripheral clocks\n");
+	/* A board must explicitly identify a disabled UFS controller before any
+	 * unused-storage gating is offered. There is no automatic boot cleanup.
+	 */
+	{
+		struct device_node *ufs;
+
+		ufs = of_parse_phandle(dev->of_node, "mediatek,unused-ufs", 0);
+		if (ufs) {
+			lpm->ufs_unused = !of_device_is_available(ufs) &&
+				of_device_is_compatible(ufs, "mediatek,ufshci");
+			of_node_put(ufs);
+			if (!lpm->ufs_unused)
+				return dev_err_probe(dev, -EINVAL, "UFS is not board-unused\n");
+			for (i = 0; i < ARRAY_SIZE(lpm->ufs_clocks); i++)
+				lpm->ufs_clocks[i].id = boot_ufs_clock_names[i];
+			ret = devm_clk_bulk_get(dev, ARRAY_SIZE(lpm->ufs_clocks),
+						lpm->ufs_clocks);
+			if (ret)
+				return dev_err_probe(dev, ret, "missing UFS leaf clocks\n");
+			for (i = 0; i < ARRAY_SIZE(lpm->ufs_sources); i++)
+				lpm->ufs_sources[i].id = boot_ufs_source_names[i];
+			ret = devm_clk_bulk_get(dev, ARRAY_SIZE(lpm->ufs_sources),
+						lpm->ufs_sources);
+			if (ret)
+				return dev_err_probe(dev, ret, "missing UFS source clocks\n");
+		}
+	}
 	lpm->s2idle_attempts = devm_kcalloc(dev, nr_cpu_ids,
 					 sizeof(*lpm->s2idle_attempts), GFP_KERNEL);
 	lpm->s2idle_resumes = devm_kcalloc(dev, nr_cpu_ids,
@@ -1180,6 +1281,12 @@ static void mt6833_lpm_remove(struct platform_device *pdev)
 {
 	struct mt6833_lpm *lpm = platform_get_drvdata(pdev);
 
+	if (lpm->ufs_clocks_held)
+		clk_bulk_disable_unprepare(ARRAY_SIZE(lpm->ufs_clocks),
+					   lpm->ufs_clocks);
+	if (lpm->ufs_sources_held)
+		clk_bulk_disable_unprepare(ARRAY_SIZE(lpm->ufs_sources),
+					   lpm->ufs_sources);
 	if (lpm->idle_blocked) {
 		writel(0, lpm->mbox + MCUPM_PWR_CTRL * sizeof(u32));
 		writel(0, lpm->mbox + MCUPM_BUCK_MODE * sizeof(u32));
