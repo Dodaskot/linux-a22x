@@ -23,6 +23,23 @@ static enum scpsys_bus_prot_block scpsys_bus_prot_blocks_mt6833[] = {
 };
 
 static const struct scpsys_domain_data scpsys_domain_data_mt6833[] = {
+	[MT6833_POWER_DOMAIN_MD1] = {
+		.name = "md1",
+		.sta_mask = BIT(0),
+		.ctl_offs = 0x0300,
+		.pwr_sta_offs = 0x016c,
+		/* Vendor MD1 polls only the primary status register. */
+		.pwr_sta2nd_offs = 0x016c,
+		.ext_buck_iso_offs = 0x0398,
+		.ext_buck_iso_mask = BIT(0) | BIT(1),
+		.bp_cfg = {
+			BUS_PROT_WR_IGN(INFRA, BIT(7), 0x2a0, 0x2a4, 0x228),
+			BUS_PROT_WR_IGN(INFRA, BIT(0) | BIT(10) | BIT(16),
+					0xb84, 0xb88, 0xb90),
+		},
+		.caps = MTK_SCPD_MODEM_PWRSEQ | MTK_SCPD_EXT_BUCK_ISO |
+			MTK_SCPD_MODEM_OFF_ACK_FIRST,
+	},
 	[MT6833_POWER_DOMAIN_MFG0] = {
 		.name = "mfg0",
 		.sta_mask = BIT(2),

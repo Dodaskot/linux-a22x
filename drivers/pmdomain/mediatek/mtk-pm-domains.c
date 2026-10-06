@@ -619,6 +619,62 @@ static void scpsys_modem_pwrseq_off(struct scpsys_domain *pd)
 		regmap_clear_bits(scpsys->base, pd->data->ctl_offs, PWR_RST_B_BIT);
 }
 
+static int scpsys_modem_off_ack_first(struct scpsys_domain *pd)
+{
+	struct scpsys *scpsys = pd->scpsys;
+	u32 status;
+	int ret, restore_ret;
+
+	/* MT6833 MD1 uses the primary power ACK, without PWR_ON_2ND. */
+	ret = regmap_clear_bits(scpsys->base, pd->data->ctl_offs, PWR_ON_BIT);
+	if (ret)
+		goto restore_power;
+
+	ret = regmap_read_poll_timeout(scpsys->base, pd->data->pwr_sta_offs,
+				       status, !(status & pd->data->sta_mask),
+				       MTK_POLL_DELAY_US, MTK_POLL_TIMEOUT);
+	if (ret)
+		goto restore_power;
+
+	/*
+	 * Samsung's MD1 sequence isolates the buck only after power ACK falls,
+	 * then asserts reset. The generic modem ordering is different.
+	 */
+	ret = regmap_set_bits(scpsys->base, pd->data->ext_buck_iso_offs,
+			      pd->data->ext_buck_iso_mask);
+	if (ret)
+		goto restore_power;
+
+	ret = regmap_clear_bits(scpsys->base, pd->data->ctl_offs, PWR_RST_B_BIT);
+	if (!ret)
+		return 0;
+
+restore_power:
+	/*
+	 * genpd retains the ON state on failure. Follow the modem power-on
+	 * order and wait for ACK before releasing its bus protection.
+	 */
+	restore_ret = regmap_clear_bits(scpsys->base, pd->data->ext_buck_iso_offs,
+					pd->data->ext_buck_iso_mask);
+	if (!restore_ret)
+		restore_ret = regmap_set_bits(scpsys->base, pd->data->ctl_offs,
+					     PWR_RST_B_BIT);
+	if (!restore_ret)
+		restore_ret = regmap_set_bits(scpsys->base, pd->data->ctl_offs,
+					     PWR_ON_BIT);
+	if (!restore_ret)
+		restore_ret = regmap_read_poll_timeout(scpsys->base,
+			pd->data->pwr_sta_offs, status,
+			(status & pd->data->sta_mask) == pd->data->sta_mask,
+			MTK_POLL_DELAY_US, MTK_POLL_TIMEOUT);
+	if (!restore_ret)
+		restore_ret = scpsys_bus_protect_disable(pd, 0);
+	if (restore_ret)
+		dev_err(scpsys->dev, "%s: failed to restore modem power: %d\n",
+			pd->genpd.name, restore_ret);
+	return ret;
+}
+
 static int scpsys_power_on(struct generic_pm_domain *genpd)
 {
 	struct scpsys_domain *pd = container_of(genpd, struct scpsys_domain, genpd);
@@ -715,7 +771,8 @@ static int scpsys_power_off_internal(struct scpsys_domain *pd)
 	if (ret < 0)
 		return ret;
 
-	if (pd->data->ext_buck_iso_offs && MTK_SCPD_CAPS(pd, MTK_SCPD_EXT_BUCK_ISO))
+	if (pd->data->ext_buck_iso_offs && MTK_SCPD_CAPS(pd, MTK_SCPD_EXT_BUCK_ISO) &&
+	    !MTK_SCPD_CAPS(pd, MTK_SCPD_MODEM_OFF_ACK_FIRST))
 		regmap_set_bits(scpsys->base, pd->data->ext_buck_iso_offs,
 				pd->data->ext_buck_iso_mask);
 
@@ -725,10 +782,15 @@ static int scpsys_power_off_internal(struct scpsys_domain *pd)
 	if (ret < 0)
 		return ret;
 
-	if (MTK_SCPD_CAPS(pd, MTK_SCPD_MODEM_PWRSEQ))
+	if (MTK_SCPD_CAPS(pd, MTK_SCPD_MODEM_OFF_ACK_FIRST)) {
+		ret = scpsys_modem_off_ack_first(pd);
+		if (ret)
+			return ret;
+	} else if (MTK_SCPD_CAPS(pd, MTK_SCPD_MODEM_PWRSEQ)) {
 		scpsys_modem_pwrseq_off(pd);
-	else
+	} else {
 		scpsys_ctl_pwrseq_off(pd);
+	}
 
 	/* wait until PWR_ACK = 0 */
 	ret = readx_poll_timeout(scpsys_domain_is_on, pd, tmp, !tmp, MTK_POLL_DELAY_US,
