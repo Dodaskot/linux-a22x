@@ -21,6 +21,7 @@
 #include <linux/pm_domain.h>
 #include <linux/pm_runtime.h>
 #include <linux/slab.h>
+#include <linux/soc/mediatek/mt6833-lpm.h>
 #include <linux/string.h>
 #include <linux/syscore_ops.h>
 
@@ -223,6 +224,31 @@ static __cpuidle int psci_enter_idle_state(struct cpuidle_device *dev,
 	return CPU_PM_CPU_IDLE_ENTER_PARAM_RCU(psci_cpu_suspend_enter, idx, state[idx]);
 }
 
+#if IS_ENABLED(CONFIG_MTK_MT6833_LPM)
+static int psci_mt6833_suspend(u32 state)
+{
+	int ret;
+
+	mt6833_lpm_s2idle_enter(state);
+	ret = psci_cpu_suspend_enter(state);
+	mt6833_lpm_s2idle_exit(state, ret);
+	return ret;
+}
+
+static int psci_mt6833_enter_s2idle(struct cpuidle_device *dev,
+				 struct cpuidle_driver *drv, int idx)
+{
+	u32 *states = __this_cpu_read(psci_cpuidle_data.psci_states);
+	u32 state = mt6833_lpm_s2idle_active() ?
+		MT6833_LPM_SUSPEND_STATE : states[idx];
+
+	/* Normal runtime entry remains the existing PSCI callback. Only this
+	 * frozen-tick s2idle path can select the guarded vendor system state.
+	 */
+	return CPU_PM_CPU_IDLE_ENTER_PARAM_RCU(psci_mt6833_suspend, idx, state);
+}
+#endif
+
 static const struct of_device_id psci_idle_state_match[] = {
 	{ .compatible = "arm,idle-state",
 	  .data = psci_enter_idle_state },
@@ -312,6 +338,10 @@ static int psci_dt_cpu_init_idle(struct device *dev, struct cpuidle_driver *drv,
 
 	/* Idle states parsed correctly, store them in the per-cpu struct. */
 	data->psci_states = psci_states;
+#if IS_ENABLED(CONFIG_MTK_MT6833_LPM)
+	if (of_machine_is_compatible("samsung,a22x"))
+		drv->states[state_count - 1].enter_s2idle = psci_mt6833_enter_s2idle;
+#endif
 	return 0;
 }
 

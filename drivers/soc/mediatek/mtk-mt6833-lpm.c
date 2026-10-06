@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* MT6833 boot-loaded firmware coordination and guarded suspend bring-up. */
 #include <linux/arm-smccc.h>
+#include <linux/cpu.h>
 #include <linux/cpu_pm.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
@@ -14,6 +15,7 @@
 #include <linux/pm_qos.h>
 #include <linux/psci.h>
 #include <linux/sizes.h>
+#include <linux/soc/mediatek/mt6833-lpm.h>
 #include <linux/suspend.h>
 
 /* Samsung MT6833's mtk_lpm_module.h and MCUPM mailbox 3 ABI. */
@@ -51,6 +53,7 @@
 #define MCUPM_SN_ENABLE_OFFSET	0x4ff
 
 struct mt6833_lpm {
+	struct device *dev;
 	void __iomem *mbox;
 	void __iomem *platform_mbox;
 	void __iomem *eem_mbox;
@@ -72,6 +75,11 @@ struct mt6833_lpm {
 	bool eem_fixed_mode;
 	bool deep_enabled;
 	bool stage_only;
+	bool s2idle_enabled;
+	bool s2idle_active;
+	atomic_t *s2idle_attempts;
+	atomic_t *s2idle_resumes;
+	atomic_t *s2idle_errors;
 	unsigned int suspend_entries;
 	int suspend_result;
 	u32 wake_irq_count;
@@ -119,6 +127,34 @@ static bool mt6833_lpm_prepared(struct mt6833_lpm *lpm)
  */
 #ifndef MODULE
 static struct mt6833_lpm *mt6833_suspend_lpm;
+
+bool mt6833_lpm_s2idle_active(void)
+{
+	struct mt6833_lpm *lpm = READ_ONCE(mt6833_suspend_lpm);
+
+	return lpm && READ_ONCE(lpm->s2idle_active);
+}
+
+void mt6833_lpm_s2idle_enter(u32 state)
+{
+	struct mt6833_lpm *lpm = READ_ONCE(mt6833_suspend_lpm);
+
+	if (lpm && state == MT6833_LPM_SUSPEND_STATE)
+		atomic_inc(&lpm->s2idle_attempts[smp_processor_id()]);
+}
+
+void mt6833_lpm_s2idle_exit(u32 state, int result)
+{
+	struct mt6833_lpm *lpm = READ_ONCE(mt6833_suspend_lpm);
+	unsigned int cpu = smp_processor_id();
+
+	if (!lpm || state != MT6833_LPM_SUSPEND_STATE)
+		return;
+	if (result)
+		atomic_inc(&lpm->s2idle_errors[cpu]);
+	else
+		atomic_inc(&lpm->s2idle_resumes[cpu]);
+}
 
 static int mt6833_suspend_begin(suspend_state_t state)
 {
@@ -185,7 +221,102 @@ static const struct platform_suspend_ops mt6833_suspend_ops = {
 	.enter = mt6833_suspend_enter,
 	.end = mt6833_suspend_end,
 };
+
+static int mt6833_s2idle_begin(void)
+{
+	return mt6833_suspend_begin(PM_SUSPEND_TO_IDLE);
+}
+
+static int mt6833_s2idle_prepare_late(void)
+{
+	struct mt6833_lpm *lpm = mt6833_suspend_lpm;
+
+	if (!lpm->s2idle_enabled)
+		return 0;
+	if (!mt6833_lpm_prepared(lpm) || !lpm->idle_blocked)
+		return -EAGAIN;
+	writel(0, lpm->mbox + MCUPM_WAKE_CPU * sizeof(u32));
+	/* Select the preferred wake CPU before permitting vendor idle entry. */
+	wmb();
+	WRITE_ONCE(lpm->s2idle_active, true);
+	/* Devices are suspended and sysfs is frozen. Let the existing deepest
+	 * cpuidle state be selected, with tick_freeze handling timekeeping once.
+	 */
+	cpu_latency_qos_update_request(&lpm->latency, PM_QOS_DEFAULT_VALUE);
+	dev_info(lpm->dev, "vendor s2idle armed; CPUs stay online\n");
+	return 0;
+}
+
+static void mt6833_s2idle_restore_early(void)
+{
+	struct mt6833_lpm *lpm = mt6833_suspend_lpm;
+
+	if (!lpm->s2idle_active)
+		return;
+	WRITE_ONCE(lpm->s2idle_active, false);
+	/* Restore the runtime WFI clamp before devices and userspace resume. */
+	cpu_latency_qos_update_request(&lpm->latency, 0);
+}
+
+static const struct platform_s2idle_ops mt6833_s2idle_ops = {
+	.begin = mt6833_s2idle_begin,
+	.prepare_late = mt6833_s2idle_prepare_late,
+	.restore_early = mt6833_s2idle_restore_early,
+	.end = mt6833_suspend_end,
+};
 #endif
+
+static ssize_t s2idle_enabled_show(struct device *dev,
+				   struct device_attribute *attr, char *buf)
+{
+	struct mt6833_lpm *lpm = dev_get_drvdata(dev);
+
+	guard(mutex)(&lpm->lock);
+	return sysfs_emit(buf, "%u\n", lpm->s2idle_enabled);
+}
+
+static ssize_t s2idle_enabled_store(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *buf, size_t count)
+{
+	struct mt6833_lpm *lpm = dev_get_drvdata(dev);
+	bool enable;
+	int ret;
+
+	ret = kstrtobool(buf, &enable);
+	if (ret)
+		return ret;
+#ifdef MODULE
+	if (enable)
+		return -EOPNOTSUPP;
+#endif
+	guard(mutex)(&lpm->lock);
+	if (enable && (!mt6833_lpm_prepared(lpm) || lpm->stage_only ||
+		       lpm->deep_enabled))
+		return -EAGAIN;
+	lpm->s2idle_enabled = enable;
+	return count;
+}
+static DEVICE_ATTR_RW(s2idle_enabled);
+
+static ssize_t s2idle_counters_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	struct mt6833_lpm *lpm = dev_get_drvdata(dev);
+	unsigned int cpu;
+	int len = 0;
+
+	for_each_possible_cpu(cpu) {
+		if (len > PAGE_SIZE - 80)
+			break;
+		len += sysfs_emit_at(buf, len, "cpu%u attempts=%d resumes=%d errors=%d\n",
+			cpu, atomic_read(&lpm->s2idle_attempts[cpu]),
+			atomic_read(&lpm->s2idle_resumes[cpu]),
+			atomic_read(&lpm->s2idle_errors[cpu]));
+	}
+	return len;
+}
+static DEVICE_ATTR_ADMIN_RO(s2idle_counters);
 
 static ssize_t deep_enabled_show(struct device *dev,
 				 struct device_attribute *attr, char *buf)
@@ -212,7 +343,7 @@ static ssize_t deep_enabled_store(struct device *dev,
 		return -EOPNOTSUPP;
 #endif
 	guard(mutex)(&lpm->lock);
-	if (enable && lpm->stage_only)
+	if (enable && (lpm->stage_only || lpm->s2idle_enabled))
 		return -EBUSY;
 	if (enable && !mt6833_lpm_prepared(lpm))
 		return -EAGAIN;
@@ -246,7 +377,7 @@ static ssize_t stage_only_store(struct device *dev,
 		return -EOPNOTSUPP;
 #endif
 	guard(mutex)(&lpm->lock);
-	if (lpm->deep_enabled)
+	if (lpm->deep_enabled || lpm->s2idle_enabled)
 		return -EBUSY;
 	lpm->stage_only = enable;
 	return count;
@@ -295,7 +426,8 @@ static ssize_t status_show(struct device *dev, struct device_attribute *attr,
 		"wake_cpu=%u\nmcusys_status=0x%lx\nspm_status=0x%lx\n"
 		"spm_fw_type=0x%lx\ntransport=%u\nplatform_initialized=%u\n"
 		"last_ack=0x%x\nready=%u\nwake_irqs_ready=%u\nwake_irq_count=%u\n"
-		"idle_blocked=%u\nresources_ready=%u\neem_fixed_mode=%u\n",
+		"idle_blocked=%u\nresources_ready=%u\neem_fixed_mode=%u\n"
+		"s2idle_enabled=%u\ns2idle_active=%u\n",
 		mt6833_mbox_read(lpm, MCUPM_AP_READY),
 		mt6833_mbox_read(lpm, MCUPM_PWR_CTRL),
 		mt6833_mbox_read(lpm, MCUPM_L3_MODE),
@@ -306,7 +438,9 @@ static ssize_t status_show(struct device *dev, struct device_attribute *attr,
 		lpm->mcusys_status, lpm->spm_status, lpm->fw_type,
 		!!lpm->platform_mbox, lpm->platform_initialized, lpm->last_ack,
 		lpm->ready, lpm->wake_irqs_ready, lpm->wake_irq_count,
-		lpm->idle_blocked, lpm->resources_ready, lpm->eem_fixed_mode);
+		lpm->idle_blocked && !lpm->s2idle_active,
+		lpm->resources_ready, lpm->eem_fixed_mode,
+		lpm->s2idle_enabled, lpm->s2idle_active);
 }
 static DEVICE_ATTR_RO(status);
 
@@ -349,7 +483,7 @@ static ssize_t power_policy_store(struct device *dev,
 	if (ret || (policy != 0 && policy != 1 && policy != 7 && policy != 15))
 		return -EINVAL;
 	guard(mutex)(&lpm->lock);
-	if (lpm->deep_enabled)
+	if (lpm->deep_enabled || lpm->s2idle_enabled)
 		return -EBUSY;
 	if (lpm->ready && (!lpm->idle_blocked ||
 			   mt6833_mbox_read(lpm, MCUPM_TASK_STATE) != 3))
@@ -850,6 +984,8 @@ static struct attribute *mt6833_lpm_attrs[] = {
 	&dev_attr_power_policy.attr,
 	&dev_attr_deep_enabled.attr,
 	&dev_attr_stage_only.attr,
+	&dev_attr_s2idle_enabled.attr,
+	&dev_attr_s2idle_counters.attr,
 	&dev_attr_counters.attr,
 	NULL,
 };
@@ -869,6 +1005,15 @@ static int mt6833_lpm_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, -EINVAL, "invalid MCUPM LPM mailbox\n");
 	lpm = devm_kzalloc(dev, sizeof(*lpm), GFP_KERNEL);
 	if (!lpm)
+		return -ENOMEM;
+	lpm->dev = dev;
+	lpm->s2idle_attempts = devm_kcalloc(dev, nr_cpu_ids,
+					 sizeof(*lpm->s2idle_attempts), GFP_KERNEL);
+	lpm->s2idle_resumes = devm_kcalloc(dev, nr_cpu_ids,
+					sizeof(*lpm->s2idle_resumes), GFP_KERNEL);
+	lpm->s2idle_errors = devm_kcalloc(dev, nr_cpu_ids,
+				       sizeof(*lpm->s2idle_errors), GFP_KERNEL);
+	if (!lpm->s2idle_attempts || !lpm->s2idle_resumes || !lpm->s2idle_errors)
 		return -ENOMEM;
 
 	/* Stock MCUPM has no clock/power-domain dependency for this CPU SRAM. */
@@ -950,6 +1095,7 @@ static int mt6833_lpm_probe(struct platform_device *pdev)
 		return -EOPNOTSUPP;
 	mt6833_suspend_lpm = lpm;
 	suspend_set_ops(&mt6833_suspend_ops);
+	s2idle_set_ops(&mt6833_s2idle_ops);
 #endif
 	return 0;
 }
