@@ -1509,9 +1509,18 @@ unlock_out:
 }
 
 static bool clk_ignore_unused __initdata;
-static int __init clk_ignore_unused_setup(char *__unused)
+static int __init clk_ignore_unused_setup(char *str)
 {
-	clk_ignore_unused = true;
+	bool ignore;
+
+	if (!*str) {
+		clk_ignore_unused = true;
+	} else if (*str == '=' && !kstrtobool(str + 1, &ignore)) {
+		/* Allow a later boot argument to override bootloader policy. */
+		clk_ignore_unused = ignore;
+	} else {
+		pr_warn("clk: Invalid clk_ignore_unused value: %s\n", str);
+	}
 	return 1;
 }
 __setup("clk_ignore_unused", clk_ignore_unused_setup);
