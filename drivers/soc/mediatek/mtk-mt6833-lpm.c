@@ -58,6 +58,7 @@ static const char * const boot_peripheral_clock_names[] = {
 	"boot-spi5", "boot-spi6", "boot-spi7",
 	"boot-mdp-rdma0", "boot-mdp-rdma1", "boot-mdp-smi0",
 	"boot-mdp-wrot0", "boot-mdp-wrot1", "boot-mdp-fake0",
+	"boot-mmpll",
 };
 
 struct mt6833_lpm {
@@ -439,7 +440,7 @@ static ssize_t boot_peripherals_gated_store(struct device *dev,
 		return -EBUSY;
 	if (gate == lpm->boot_peripherals_gated)
 		return count;
-	/* Only explicitly described board-unused UART/SPI/MDP gates are managed. Taking
+	/* Only explicitly described board-unused peripheral clocks are managed. Taking
 	 * and releasing a CCF reference removes inherited hardware enables;
 	 * any real consumer's references continue to protect its clock.
 	 * Do not globally clean up boot clocks until all dependencies are known.
