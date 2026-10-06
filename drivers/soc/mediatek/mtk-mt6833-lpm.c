@@ -2,6 +2,7 @@
 /* MT6833 boot-loaded firmware coordination and guarded suspend bring-up. */
 #include <linux/arm-smccc.h>
 #include <linux/clk.h>
+#include <linux/clk-provider.h>
 #include <linux/cpu.h>
 #include <linux/cpu_pm.h>
 #include <linux/io.h>
@@ -62,11 +63,11 @@ static const char * const boot_peripheral_clock_names[] = {
 };
 
 static const char * const boot_ufs_clock_names[] = {
-	"boot-ufs", "boot-unipro", "boot-ufs-bclk", "boot-ufs-aes",
+	"boot-ufs", "boot-unipro", "boot-ufs-bclk",
 };
 
 static const char * const boot_ufs_source_names[] = {
-	"boot-ufs-source", "boot-ufs-aes-source",
+	"boot-ufs-source",
 };
 
 struct mt6833_lpm {
@@ -493,6 +494,7 @@ static ssize_t boot_ufs_gated_store(struct device *dev,
 {
 	struct mt6833_lpm *lpm = dev_get_drvdata(dev);
 	bool gate;
+	unsigned int i;
 	int ret;
 
 	ret = kstrtobool(buf, &gate);
@@ -506,9 +508,9 @@ static ssize_t boot_ufs_gated_store(struct device *dev,
 		return -EBUSY;
 	if (gate == lpm->boot_ufs_gated)
 		return count;
-	/* Hold both source muxes throughout this scoped gate experiment. This
+	/* Hold the UFS source mux throughout this scoped gate experiment. This
 	 * prevents releasing inherited parent PLL enables shared with eMMC and
-	 * other peripherals. Only the four board-unused UFS leaf gates change.
+	 * other peripherals. Only three board-unused UFS leaf gates change.
 	 * The source references remain owned until a clean reboot.
 	 */
 	if (!lpm->ufs_sources_held) {
@@ -529,9 +531,20 @@ static ssize_t boot_ufs_gated_store(struct device *dev,
 		clk_bulk_disable_unprepare(ARRAY_SIZE(lpm->ufs_clocks),
 					   lpm->ufs_clocks);
 		lpm->ufs_clocks_held = false;
+		for (i = 0; i < ARRAY_SIZE(lpm->ufs_clocks); i++) {
+			if (!__clk_is_enabled(lpm->ufs_clocks[i].clk))
+				continue;
+			dev_warn(dev, "UFS clock %s remains enabled; reverting\n",
+				 lpm->ufs_clocks[i].id);
+			ret = clk_bulk_prepare_enable(ARRAY_SIZE(lpm->ufs_clocks),
+						      lpm->ufs_clocks);
+			if (!ret)
+				lpm->ufs_clocks_held = true;
+			return ret ?: -EBUSY;
+		}
 	}
 	lpm->boot_ufs_gated = gate;
-	dev_info(dev, "board-unused UFS leaf clocks %s; sources retained\n",
+	dev_info(dev, "board-unused UFS leaf clocks %s; source retained\n",
 		 gate ? "gated" : "restored");
 	return count;
 }
