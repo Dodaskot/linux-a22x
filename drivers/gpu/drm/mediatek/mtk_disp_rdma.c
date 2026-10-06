@@ -7,6 +7,7 @@
 
 #include <linux/clk.h>
 #include <linux/component.h>
+#include <linux/iopoll.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -29,6 +30,9 @@
 #define DISP_REG_RDMA_GLOBAL_CON		0x0010
 #define RDMA_ENGINE_EN					BIT(0)
 #define RDMA_MODE_MEMORY				BIT(1)
+#define RDMA_SOFT_RESET				BIT(4)
+#define RDMA_RESET_STATE				GENMASK(10, 8)
+#define RDMA_RESET_IDLE				BIT(8)
 #define DISP_REG_RDMA_SIZE_CON_0		0x0014
 #define RDMA_MATRIX_ENABLE				BIT(17)
 #define RDMA_MATRIX_INT_MTX_SEL				GENMASK(23, 20)
@@ -187,6 +191,38 @@ int mtk_rdma_clk_enable(struct device *dev)
 		/* DISP power loss resets this port to translated addresses. */
 		writel(con & ~LARB_PORT_MMU_EN,
 		       rdma->larb_regs + MT6833_LARB_RDMA_NONSEC_CON);
+	}
+	if (!ret && rdma->data->has_fabric_clks) {
+		u32 val;
+		int assert_ret;
+
+		/*
+		 * LK leaves RDMA running. Take ownership before CRTC configuration,
+		 * just as after a DISP power cycle: stop interrupts and the engine,
+		 * then reset its internal state using the MT6833 reset sequence.
+		 * All accesses are covered by the CRTC's domain and clock holds.
+		 */
+		writel(0, rdma->regs + DISP_REG_RDMA_INT_ENABLE);
+		writel(RDMA_SOFT_RESET, rdma->regs + DISP_REG_RDMA_GLOBAL_CON);
+		assert_ret = readl_poll_timeout(rdma->regs + DISP_REG_RDMA_GLOBAL_CON,
+				val, (val & RDMA_RESET_STATE) != RDMA_RESET_IDLE,
+				10, 100000);
+		writel(0, rdma->regs + DISP_REG_RDMA_GLOBAL_CON);
+		ret = readl_poll_timeout(rdma->regs + DISP_REG_RDMA_GLOBAL_CON,
+				val, (val & RDMA_RESET_STATE) == RDMA_RESET_IDLE,
+				10, 100000);
+		if (assert_ret || ret) {
+			dev_err(dev, "RDMA reset failed: assert=%d release=%d state=%#x\n",
+				assert_ret, ret, val);
+			clk_disable_unprepare(rdma->clk);
+			clk_bulk_disable_unprepare(ARRAY_SIZE(rdma->fabric_clks),
+						   rdma->fabric_clks);
+			return assert_ret ?: ret;
+		}
+		writel(0, rdma->regs + DISP_REG_RDMA_INT_STATUS);
+		/* Set the working-register policy before the first configuration. */
+		writel(RDMA_BYPASS_SHADOW | RDMA_READ_WORK_REG,
+		       rdma->regs + MT6833_RDMA_SHADOW_UPDATE);
 	}
 	return ret;
 }
