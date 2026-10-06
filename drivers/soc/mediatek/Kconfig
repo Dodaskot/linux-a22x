@@ -5,6 +5,15 @@
 menu "MediaTek SoC drivers"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
 
+config MTK_MT6833_LPM
+	bool "MediaTek MT6833 low-power firmware coordination"
+	depends on ARM64 && OF_RESERVED_MEM && SUSPEND && ARM_PSCI_FW && CPU_IDLE
+	help
+	  Coordinate the boot-loaded MCUPM firmware and provide a guarded
+	  vendor CPU_SUSPEND backend on MT6833. Firmware initialization and
+	  deep suspend remain explicit administrator opt-ins during bring-up.
+	  Suspend-to-idle remains available without firmware initialization.
+
 config MTK_CMDQ
 	tristate "MediaTek CMDQ Support"
 	depends on ARCH_MEDIATEK || COMPILE_TEST

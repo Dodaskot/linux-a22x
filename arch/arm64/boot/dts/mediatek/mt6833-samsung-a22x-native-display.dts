@@ -4,6 +4,22 @@
 #include "mt6833-samsung-a22x.dts"
 
 / {
+	/* The stock MCUPM controller stays disabled; this driver owns only
+	 * the platform, LPM and disabled-EEM mailboxes of boot-loaded firmware.
+	 * Reuse the existing reservation: adding a new carveout breaks LK.
+	 */
+	lpm_ml: power-controller@c55fce0 {
+		compatible = "mediatek,mt6833-lpm";
+		reg = <0 0x0c55fce0 0 0xa0>, <0 0x0c55fb00 0 0xa0>,
+		      <0 0x0c562004 0 4>, <0 0x0c562000 0 4>,
+		      <0 0x0c560074 0 4>, <0 0x0c560078 0 4>,
+		      <0 0x0c55ff60 0 0xa0>;
+		reg-names = "lpm-mailbox", "platform-mailbox", "tx-set", "tx-status",
+			    "rx-clear", "rx-status", "eem-mailbox";
+		memory-region = <&mcupm_share>;
+		mediatek,firmware-config = <&mtk_lpm>;
+	};
+
 	aliases {
 		rdma0 = &disp_rdma0_ml;
 		mutex0 = &disp_mutex_ml;
