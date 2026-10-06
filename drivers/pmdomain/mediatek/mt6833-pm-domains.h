@@ -38,7 +38,7 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6833[] = {
 					0xb84, 0xb88, 0xb90),
 		},
 		.caps = MTK_SCPD_MODEM_PWRSEQ | MTK_SCPD_EXT_BUCK_ISO |
-			MTK_SCPD_MODEM_OFF_ACK_FIRST,
+			MTK_SCPD_MODEM_OFF_ACK_FIRST | MTK_SCPD_ACTIVE_WAKEUP,
 	},
 	[MT6833_POWER_DOMAIN_MFG0] = {
 		.name = "mfg0",

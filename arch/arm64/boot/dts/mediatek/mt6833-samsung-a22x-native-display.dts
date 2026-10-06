@@ -4,6 +4,13 @@
 #include "mt6833-samsung-a22x.dts"
 
 / {
+	modem_power_ml: modem@10209000 {
+		compatible = "mediatek,mt6833-modem-power";
+		reg = <0 0x10209000 0 0x1000>;
+		power-domains = <&spm MT6833_POWER_DOMAIN_MD1>;
+		mediatek,spm = <&scpsys_ml>;
+		wakeup-source;
+	};
 	/* The stock MCUPM controller stays disabled; this driver owns only
 	 * the platform, LPM and disabled-EEM mailboxes of boot-loaded firmware.
 	 * Reuse the existing reservation: adding a new carveout breaks LK.
@@ -185,6 +192,11 @@
 };
 
 &spm {
+	power-domain@7 {
+		reg = <MT6833_POWER_DOMAIN_MD1>;
+		mediatek,infracfg = <&infracfg_ao>;
+		#power-domain-cells = <0>;
+	};
 	power-domain@6 {
 		reg = <MT6833_POWER_DOMAIN_DISP>;
 		clocks = <&topckgen CLK_TOP_DISP_SEL>,

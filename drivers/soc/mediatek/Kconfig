@@ -5,6 +5,13 @@
 menu "MediaTek SoC drivers"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
 
+config MTK_MT6833_MODEM_POWER
+	bool "MediaTek MT6833 guarded modem power ownership"
+	depends on PM && PM_GENERIC_DOMAINS && OF
+	help
+	  Own the unused A22 modem domain through genpd. Keep its boot power
+	  state until an administrator explicitly requests runtime parking.
+
 config MTK_MT6833_LPM
 	bool "MediaTek MT6833 low-power firmware coordination"
 	depends on ARM64 && OF_RESERVED_MEM && SUSPEND && ARM_PSCI_FW && CPU_IDLE
