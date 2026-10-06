@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/soc/mediatek/mediatek,mt6833-modem-power.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: MediaTek MT6833 modem power ownership during bring-up
+
+maintainers:
+  - Dodaskot <pessdres@gmail.com>
+
+description: |
+  Guarded power ownership for the unused modem on the Samsung A22.
+  The modem is retained by default. Runtime parking uses the native power
+  domain controller; the modem CCIF registers are not accessed.
+
+properties:
+  compatible:
+    const: mediatek,mt6833-modem-power
+  reg:
+    maxItems: 1
+  power-domains:
+    maxItems: 1
+  mediatek,spm:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Always-on SPM syscon used to verify power transitions
+  wakeup-source: true
+
+required:
+  - compatible
+  - reg
+  - power-domains
+  - mediatek,spm
+  - wakeup-source
+
+additionalProperties: false
