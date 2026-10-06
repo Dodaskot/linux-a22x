@@ -74,6 +74,7 @@ struct mt6833_lpm {
 	unsigned int suspend_entries;
 	int suspend_result;
 	u32 wake_irq_count;
+	u32 power_policy;
 	u32 last_ack;
 	unsigned long mcusys_status;
 	unsigned long spm_status;
@@ -264,6 +265,57 @@ static ssize_t status_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RO(status);
 
+static void mt6833_power_policy_apply(struct mt6833_lpm *lpm)
+{
+	/* Runtime CPUs are held in WFI. Disable controls before changing modes. */
+	writel(0, lpm->mbox + MCUPM_PWR_CTRL * sizeof(u32));
+	/* Complete disabling controls before publishing replacement modes. */
+	wmb();
+	writel(lpm->power_policy & BIT(1) ? 2 : 0,
+	       lpm->mbox + MCUPM_BUCK_MODE * sizeof(u32));
+	writel(lpm->power_policy & BIT(2) ? 2 : 0,
+	       lpm->mbox + MCUPM_PLL_MODE * sizeof(u32));
+	/* Publish both mode fields before enabling their firmware controls. */
+	wmb();
+	writel(lpm->power_policy, lpm->mbox + MCUPM_PWR_CTRL * sizeof(u32));
+	/* Complete policy publication before AP_READY or further PM operations. */
+	wmb();
+}
+
+static ssize_t power_policy_show(struct device *dev,
+				 struct device_attribute *attr, char *buf)
+{
+	struct mt6833_lpm *lpm = dev_get_drvdata(dev);
+
+	guard(mutex)(&lpm->lock);
+	return sysfs_emit(buf, "0x%x\n", lpm->power_policy);
+}
+
+static ssize_t power_policy_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	struct mt6833_lpm *lpm = dev_get_drvdata(dev);
+	u32 policy;
+	int ret;
+
+	ret = kstrtou32(buf, 0, &policy);
+	/* Disabled, MCUSYS only, MCUSYS/buck/PLL, or stock with CM_MGR. */
+	if (ret || (policy != 0 && policy != 1 && policy != 7 && policy != 15))
+		return -EINVAL;
+	guard(mutex)(&lpm->lock);
+	if (lpm->deep_enabled)
+		return -EBUSY;
+	if (lpm->ready && (!lpm->idle_blocked ||
+			   mt6833_mbox_read(lpm, MCUPM_TASK_STATE) != 3))
+		return -EBUSY;
+	lpm->power_policy = policy;
+	if (lpm->ready)
+		mt6833_power_policy_apply(lpm);
+	return count;
+}
+static DEVICE_ATTR_RW(power_policy);
+
 /* The caller holds lock. Only the platform channel's bit/data are touched. */
 static int mt6833_channel_call(struct mt6833_lpm *lpm, void __iomem *mbox,
 			      u32 bit, const u32 *data, unsigned int words)
@@ -393,12 +445,10 @@ static ssize_t prepare_store(struct device *dev, struct device_attribute *attr,
 		cpu_latency_qos_add_request(&lpm->latency, 0);
 		lpm->idle_blocked = true;
 	}
-	writel(2, lpm->mbox + MCUPM_BUCK_MODE * sizeof(u32));
-	writel(2, lpm->mbox + MCUPM_PLL_MODE * sizeof(u32));
-	/* a22x_defconfig also enables CM_MGR, so its stock control mask is 15. */
-	writel(15, lpm->mbox + MCUPM_PWR_CTRL * sizeof(u32));
-	/* Complete policy writes before firmware observes AP_READY. */
-	wmb();
+	/* Readiness must not implicitly enable unvalidated buck/PLL control.
+	 * Stock mask 15 is available separately for explicitly armed tests.
+	 */
+	mt6833_power_policy_apply(lpm);
 	writel(ready_value, lpm->mbox + MCUPM_AP_READY * sizeof(u32));
 	ret = readl_poll_timeout(lpm->mbox + MCUPM_TASK_STATE * sizeof(u32), state,
 				state == 2 || state == 3, 1000, 2000000);
@@ -752,6 +802,7 @@ static struct attribute *mt6833_lpm_attrs[] = {
 	&dev_attr_mailbox.attr,
 	&dev_attr_resources.attr,
 	&dev_attr_fixed_voltage.attr,
+	&dev_attr_power_policy.attr,
 	&dev_attr_deep_enabled.attr,
 	&dev_attr_counters.attr,
 	NULL,

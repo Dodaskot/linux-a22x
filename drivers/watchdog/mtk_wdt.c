@@ -68,6 +68,11 @@
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
 static unsigned int timeout;
+/* Explicitly armed for short suspend bring-up tests; off for normal sleep. */
+static bool suspend_test_failsafe;
+module_param(suspend_test_failsafe, bool, 0600);
+MODULE_PARM_DESC(suspend_test_failsafe,
+		"Keep an already running watchdog armed during short suspend tests");
 
 struct mtk_wdt_dev {
 	struct watchdog_device wdt_dev;
@@ -476,6 +481,17 @@ static int mtk_wdt_suspend(struct device *dev)
 
 	if (watchdog_active(&mtk_wdt->wdt_dev) ||
 	    watchdog_hw_running(&mtk_wdt->wdt_dev)) {
+		if (READ_ONCE(suspend_test_failsafe)) {
+			/* The core still pauses its worker. A hung test therefore
+			 * expires the hardware timer rather than needing a key reset.
+			 */
+			mtk_wdt_start(&mtk_wdt->wdt_dev);
+			mtk_wdt_ping(&mtk_wdt->wdt_dev);
+			dev_info(dev, "suspend test watchdog armed: %u seconds, mode=%#x\n",
+				 mtk_wdt->wdt_dev.timeout,
+				 readl(mtk_wdt->wdt_base + WDT_MODE));
+			return 0;
+		}
 		mtk_wdt_stop(&mtk_wdt->wdt_dev);
 		dev_dbg(dev, "watchdog stopped for system suspend: mode=%#x\n",
 			readl(mtk_wdt->wdt_base + WDT_MODE));
