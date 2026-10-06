@@ -125,6 +125,11 @@ static int mt6833_suspend_begin(suspend_state_t state)
 	struct mt6833_lpm *lpm = mt6833_suspend_lpm;
 
 	mutex_lock(&lpm->lock);
+	/* PM also falls back to these begin/end callbacks for s2idle. Its
+	 * ordinary path needs no MCUPM initialization or deep opt-in.
+	 */
+	if (state == PM_SUSPEND_TO_IDLE)
+		return 0;
 	/* PM invokes end even when begin rejects the request. */
 	if (!lpm->stage_only && (!lpm->deep_enabled || !mt6833_lpm_prepared(lpm)))
 		return -EAGAIN;
