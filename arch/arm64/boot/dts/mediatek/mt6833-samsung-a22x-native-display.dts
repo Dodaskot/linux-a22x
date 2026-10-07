@@ -64,6 +64,8 @@
 		clocks = <&topckgen CLK_TOP_MDP_SEL>;
 		clock-names = "bus";
 		mediatek,spm = <&scpsys_ml>;
+		/* MDP gate registers share DISP power and bus protection. */
+		power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
 	};
 
 	aliases {

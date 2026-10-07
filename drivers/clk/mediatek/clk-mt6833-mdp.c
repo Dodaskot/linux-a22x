@@ -70,10 +70,11 @@ static int mt6833_mdp_runtime_resume(struct device *dev)
 	ret = regmap_read(data->spm, 0x170, &status2);
 	if (ret)
 		return ret;
-	/* The boot-owned MDP island has no verified power-switch sequence yet.
-	 * Refuse register access when it is off; do not invent a power-on path.
+	/* Samsung's MT6833 mdpsys register aperture belongs to PG_DIS, not
+	 * the otherwise unused MDP status bit. The DISP genpd dependency
+	 * releases its bus protection before this runtime-resume callback.
 	 */
-	if (!(status & status2 & BIT(20)))
+	if (!(status & status2 & BIT(21)))
 		return -EHOSTDOWN;
 	if (data->bus_held)
 		return 0;
