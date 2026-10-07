@@ -55,7 +55,6 @@
 			      "boot-ufs-source";
 		/* This eMMC board has no active UFS controller. Gating is opt-in. */
 		mediatek,unused-ufs = <&ufshci>;
-		mediatek,ufs-clock-pmic = <&mt6359>;
 	};
 
 	mdp_clocks_ml: clock-controller@1f000000 {
