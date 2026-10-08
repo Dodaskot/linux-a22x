@@ -47,9 +47,11 @@ properties:
 
   clocks:
     description: Unused board clocks retained by the bootloader
-    maxItems: 14
+    minItems: 14
+    maxItems: 18
 
   clock-names:
+    minItems: 14
     items:
       - const: boot-uart1
       - const: boot-spi0
@@ -65,6 +67,10 @@ properties:
       - const: boot-mdp-wrot1
       - const: boot-mdp-fake0
       - const: boot-mmpll
+      - const: boot-ufs
+      - const: boot-unipro
+      - const: boot-ufs-bclk
+      - const: boot-ufs-source
 
   mediatek,firmware-config:
     $ref: /schemas/types.yaml#/definitions/phandle
@@ -72,6 +78,28 @@ properties:
       Preserved vendor LPM configuration node with irq-remain,
       resource-ctrl and constraints lists. This transitional interface
       reuses Samsung's firmware configuration without enabling its driver.
+
+  mediatek,unused-ufs:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Disabled UFS controller on an eMMC board with no UFS device
+
+  mediatek,spm:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: SPM syscon providing read-only unused UFS request status
+
+dependencies:
+  mediatek,spm: [ 'mediatek,unused-ufs' ]
+
+allOf:
+  - if:
+      required:
+        - mediatek,unused-ufs
+    then:
+      properties:
+        clocks:
+          minItems: 18
+        clock-names:
+          minItems: 18
 
 required:
   - compatible
