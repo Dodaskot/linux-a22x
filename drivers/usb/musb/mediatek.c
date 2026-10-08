@@ -51,6 +51,10 @@ struct mtk_glue {
 	enum usb_role role;
 	struct usb_role_switch *role_sw;
 	bool clks_suspended;
+	bool phy_suspended;
+	u32 suspend_l1_mask;
+	u16 suspend_rx_toggle_en;
+	u16 suspend_tx_toggle_en;
 };
 
 static int mtk_musb_clks_get(struct mtk_glue *glue)
@@ -517,6 +521,8 @@ static void mtk_musb_remove(struct platform_device *pdev)
 static int mtk_musb_suspend_noirq(struct device *dev)
 {
 	struct mtk_glue *glue = dev_get_drvdata(dev);
+	struct musb *musb = glue->musb;
+	int ret;
 
 	if (!of_device_is_compatible(dev->of_node, "mediatek,mt6833-musb"))
 		return 0;
@@ -525,6 +531,19 @@ static int mtk_musb_suspend_noirq(struct device *dev)
 	 */
 	if (device_may_wakeup(&glue->musb_pdev->dev))
 		return 0;
+	if (glue->clks_suspended || glue->phy_suspended)
+		return -EBUSY;
+
+	/* Generic MUSB context does not include these MediaTek registers. */
+	glue->suspend_l1_mask = musb_readl(musb->mregs, USB_L1INTM);
+	glue->suspend_rx_toggle_en = musb_readw(musb->mregs, MUSB_RXTOGEN);
+	glue->suspend_tx_toggle_en = musb_readw(musb->mregs, MUSB_TXTOGEN);
+	if (glue->role != USB_ROLE_NONE) {
+		ret = phy_power_off(glue->phy);
+		if (ret)
+			return ret;
+		glue->phy_suspended = true;
+	}
 	clk_bulk_disable_unprepare(MTK_MUSB_CLKS_NUM, glue->clks);
 	glue->clks_suspended = true;
 	dev_dbg(dev, "USB interface clocks gated for system sleep\n");
@@ -534,15 +553,35 @@ static int mtk_musb_suspend_noirq(struct device *dev)
 static int mtk_musb_resume_noirq(struct device *dev)
 {
 	struct mtk_glue *glue = dev_get_drvdata(dev);
+	struct musb *musb = glue->musb;
 	int ret;
 
-	if (!glue->clks_suspended)
+	if (!glue->clks_suspended && !glue->phy_suspended)
 		return 0;
 	/* Restore clocks before the child accesses its saved register context. */
-	ret = clk_bulk_prepare_enable(MTK_MUSB_CLKS_NUM, glue->clks);
-	if (ret)
-		return ret;
-	glue->clks_suspended = false;
+	if (glue->clks_suspended) {
+		ret = clk_bulk_prepare_enable(MTK_MUSB_CLKS_NUM, glue->clks);
+		if (ret)
+			return ret;
+		glue->clks_suspended = false;
+	}
+	if (glue->phy_suspended) {
+		ret = phy_power_on(glue->phy);
+		if (ret)
+			return ret;
+		glue->phy_suspended = false;
+		ret = phy_set_mode(glue->phy, glue->phy_mode);
+		if (ret)
+			return ret;
+	}
+	musb_writew(musb->mregs, MUSB_RXTOGEN, glue->suspend_rx_toggle_en);
+	musb_writew(musb->mregs, MUSB_TXTOGEN, glue->suspend_tx_toggle_en);
+#if defined(CONFIG_USB_INVENTRA_DMA)
+	/* MTK DMA interrupt status is W1C, unmask bits are write-to-set. */
+	musb_writel(musb->mregs, MUSB_HSDMA_INTR,
+		    DMA_INTR_STATUS_MSK | DMA_INTR_UNMASK_SET_MSK);
+#endif
+	musb_writel(musb->mregs, USB_L1INTM, glue->suspend_l1_mask);
 	dev_dbg(dev, "USB interface clocks restored after system sleep\n");
 	return 0;
 }

@@ -111,11 +111,15 @@
 
 #define U3P_U2PHYDTM1		0x06C
 #define P2C_RG_UART_EN			BIT(16)
+#define P2C_FORCE_MODE_MASK		GENMASK(13, 8)
+#define P2C_RG_MODE_MASK			GENMASK(5, 0)
 #define P2C_FORCE_IDDIG		BIT(9)
 #define P2C_RG_VBUSVALID		BIT(5)
 #define P2C_RG_SESSEND			BIT(4)
+#define P2C_RG_BVALID			BIT(3)
 #define P2C_RG_AVALID			BIT(2)
 #define P2C_RG_IDDIG			BIT(1)
+#define P2C_RG_IDPULLUP			BIT(0)
 
 #define U3P_U2PHYBC12C		0x080
 #define P2C_RG_CHGDT_EN		BIT(0)
@@ -278,11 +282,11 @@ enum mtk_phy_version {
 /**
  * struct mtk_phy_pdata - SoC specific platform data
  * @avoid_rx_sen_degradation: Avoid TX Sensitivity level degradation (MT6795/8173 only)
- * @sw_pll_48m_to_26m:        Workaround for V3 IP (MT8195) - switch the 48MHz PLL from
- *                            fractional mode to integer to output 26MHz for U2PHY
+ * @sw_pll_48m_to_26m:        Apply software 26 MHz PLL settings (MT8195, MT6833)
  * @sw_efuse_supported:       Switches off eFuse auto-load from PHY and applies values
  *                            read from different nvmem (usually different eFuse array)
  *                            that is pointed at in the device tree node for this PHY
+ * @u2_sw_sleep:             MT6833 software PHY sleep and forced mode signals
  * @slew_ref_clock_mhz:         Default reference clock (in MHz) for slew rate calibration
  * @slew_rate_coefficient:    Coefficient for slew rate calibration
  * @version:                  PHY IP Version
@@ -291,6 +295,7 @@ struct mtk_phy_pdata {
 	bool avoid_rx_sen_degradation;
 	bool sw_pll_48m_to_26m;
 	bool sw_efuse_supported;
+	bool u2_sw_sleep;
 	u8 slew_ref_clock_mhz;
 	u8 slew_rate_coefficient;
 	enum mtk_phy_version version;
@@ -825,6 +830,10 @@ static void u2_phy_instance_init(struct mtk_tphy *tphy,
 	void __iomem *com = u2_banks->com;
 	u32 index = instance->index;
 
+	/* Program the MT6833 PLL before releasing the forced sleep signals. */
+	if (tphy->pdata->u2_sw_sleep)
+		u2_phy_pll_26m_set(tphy, instance);
+
 	/* switch to USB function, and enable usb pll */
 	mtk_phy_clear_bits(com + U3P_U2PHYDTM0, P2C_FORCE_UART_EN | P2C_FORCE_SUSPENDM);
 
@@ -858,8 +867,8 @@ static void u2_phy_instance_init(struct mtk_tphy *tphy,
 
 	mtk_phy_update_field(com + U3P_USBPHYACR6, PA6_RG_U2_SQTH, 2);
 
-	/* Workaround only for mt8195, HW fix it for others (V3) */
-	u2_phy_pll_26m_set(tphy, instance);
+	if (!tphy->pdata->u2_sw_sleep)
+		u2_phy_pll_26m_set(tphy, instance);
 
 	dev_dbg(tphy->dev, "%s(%d)\n", __func__, index);
 }
@@ -892,6 +901,35 @@ static void u2_phy_instance_power_off(struct mtk_tphy *tphy,
 	struct u2phy_banks *u2_banks = &instance->u2_banks;
 	void __iomem *com = u2_banks->com;
 	u32 index = instance->index;
+
+	if (tphy->pdata->u2_sw_sleep) {
+		/* MT6833 USB2_PHY_V2 save-current sequence: force the UTMI
+		 * signals idle before removing the controller clock path.
+		 */
+		mtk_phy_clear_bits(com + U3P_U2PHYDTM0, P2C_FORCE_UART_EN);
+		mtk_phy_clear_bits(com + U3P_U2PHYDTM1, P2C_RG_UART_EN);
+		mtk_phy_clear_bits(com + U3P_U2PHYACR4, P2C_U2_GPIO_CTR_MSK);
+		mtk_phy_clear_bits(com + U3P_USBPHYACR6,
+				   PA6_RG_U2_BC11_SW_EN | PA6_RG_U2_OTG_VBUSCMP_EN);
+		mtk_phy_set_bits(com + U3P_U2PHYDTM0, P2C_RG_SUSPENDM);
+		mtk_phy_set_bits(com + U3P_U2PHYDTM0, P2C_FORCE_SUSPENDM);
+		mtk_phy_set_bits(com + U3P_U2PHYDTM0,
+				 P2C_RG_DPPULLDOWN | P2C_RG_DMPULLDOWN);
+		mtk_phy_update_field(com + U3P_U2PHYDTM0, P2C_RG_XCVRSEL, 1);
+		mtk_phy_set_bits(com + U3P_U2PHYDTM0, P2C_RG_TERMSEL);
+		mtk_phy_clear_bits(com + U3P_U2PHYDTM0, P2C_RG_DATAIN);
+		mtk_phy_set_bits(com + U3P_U2PHYDTM0,
+				 P2C_FORCE_DP_PULLDOWN | P2C_FORCE_DM_PULLDOWN |
+				 P2C_FORCE_XCVRSEL | P2C_FORCE_TERMSEL | P2C_FORCE_DATAIN);
+		udelay(800);
+		mtk_phy_clear_bits(com + U3P_U2PHYDTM0, P2C_RG_SUSPENDM);
+		udelay(1);
+		/* IDPULLUP=1, SESSEND=1, all other forced mode inputs idle. */
+		mtk_phy_update_bits(com + U3P_U2PHYDTM1,
+				    P2C_FORCE_MODE_MASK | P2C_RG_MODE_MASK,
+				    P2C_FORCE_MODE_MASK | P2C_RG_IDPULLUP | P2C_RG_SESSEND);
+		return;
+	}
 
 	/* OTG Disable */
 	mtk_phy_clear_bits(com + U3P_USBPHYACR6, PA6_RG_U2_OTG_VBUSCMP_EN);
@@ -934,13 +972,27 @@ static void u2_phy_instance_set_mode(struct mtk_tphy *tphy,
 	switch (mode) {
 	case PHY_MODE_USB_DEVICE:
 		tmp |= P2C_FORCE_IDDIG | P2C_RG_IDDIG;
+		if (tphy->pdata->u2_sw_sleep) {
+			/* MT6833 device path has no separate VBUS notifier. */
+			tmp &= ~(P2C_FORCE_MODE_MASK | P2C_RG_MODE_MASK);
+			tmp |= P2C_FORCE_MODE_MASK | P2C_RG_VBUSVALID |
+			       P2C_RG_BVALID | P2C_RG_AVALID | P2C_RG_IDDIG |
+			       P2C_RG_IDPULLUP;
+		}
 		break;
 	case PHY_MODE_USB_HOST:
 		tmp |= P2C_FORCE_IDDIG;
 		tmp &= ~P2C_RG_IDDIG;
+		if (tphy->pdata->u2_sw_sleep) {
+			tmp &= ~(P2C_FORCE_MODE_MASK | P2C_RG_MODE_MASK);
+			tmp |= P2C_FORCE_MODE_MASK | P2C_RG_VBUSVALID |
+			       P2C_RG_BVALID | P2C_RG_AVALID | P2C_RG_IDPULLUP;
+		}
 		break;
 	case PHY_MODE_USB_OTG:
 		tmp &= ~(P2C_FORCE_IDDIG | P2C_RG_IDDIG);
+		if (tphy->pdata->u2_sw_sleep)
+			tmp &= ~P2C_FORCE_MODE_MASK;
 		break;
 	default:
 		return;
@@ -1405,7 +1457,16 @@ static int mtk_phy_power_on(struct phy *phy)
 	struct mtk_tphy *tphy = dev_get_drvdata(phy->dev.parent);
 
 	if (instance->type == PHY_TYPE_USB2) {
+		if (tphy->pdata->u2_sw_sleep) {
+			/* Restore software-owned settings after INFRA power loss. */
+			udelay(50);
+			phy_efuse_set(instance);
+			u2_phy_instance_init(tphy, instance);
+			u2_phy_props_set(tphy, instance);
+		}
 		u2_phy_instance_power_on(tphy, instance);
+		if (tphy->pdata->u2_sw_sleep)
+			udelay(800);
 		hs_slew_rate_calibrate(tphy, instance);
 	} else if (instance->type == PHY_TYPE_PCIE) {
 		pcie_phy_instance_power_on(tphy, instance);
@@ -1551,9 +1612,19 @@ static const struct mtk_phy_pdata mt8195_pdata = {
 	.version = MTK_PHY_V3,
 };
 
+static const struct mtk_phy_pdata mt6833_pdata = {
+	.sw_pll_48m_to_26m = true,
+	.sw_efuse_supported = true,
+	.u2_sw_sleep = true,
+	.slew_ref_clock_mhz = 26,
+	.slew_rate_coefficient = 28,
+	.version = MTK_PHY_V2,
+};
+
 static const struct of_device_id mtk_tphy_id_table[] = {
 	{ .compatible = "mediatek,mt2701-u3phy", .data = &tphy_v1_pdata },
 	{ .compatible = "mediatek,mt2712-u3phy", .data = &tphy_v2_pdata },
+	{ .compatible = "mediatek,mt6833-tphy", .data = &mt6833_pdata },
 	{ .compatible = "mediatek,mt8173-u3phy", .data = &mt8173_pdata },
 	{ .compatible = "mediatek,mt8195-tphy", .data = &mt8195_pdata },
 	{ .compatible = "mediatek,generic-tphy-v1", .data = &tphy_v1_pdata },
