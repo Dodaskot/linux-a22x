@@ -55,6 +55,7 @@
 			      "boot-ufs-source";
 		/* This eMMC board has no active UFS controller. Gating is opt-in. */
 		mediatek,unused-ufs = <&ufshci>;
+		mediatek,spm = <&scpsys_ml>;
 	};
 
 	mdp_clocks_ml: clock-controller@1f000000 {
@@ -220,5 +221,26 @@
 			      "smi-iommu", "mm-apb";
 		mediatek,infracfg = <&infracfg_ao>;
 		#power-domain-cells = <0>;
+	};
+};
+
+/* N5 NFC VEN is active-low (unlike N3). LK leaves it enabled, keeping
+ * GPIO81/SRCLKENAI0 asserted and preventing 26 MHz/INFRA power-off.
+ * Hold NFC off until a native NFC driver takes ownership of both GPIOs.
+ * Do not mask or remux its clock-request input.
+ */
+&pio_ml {
+	nfc-firmware-hog {
+		gpio-hog;
+		gpios = <6 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "nfc-firmware";
+	};
+
+	nfc-enable-hog {
+		gpio-hog;
+		gpios = <7 GPIO_ACTIVE_LOW>;
+		output-low;
+		line-name = "nfc-enable";
 	};
 };

@@ -15,6 +15,7 @@ config MTK_MT6833_MODEM_POWER
 config MTK_MT6833_LPM
 	bool "MediaTek MT6833 low-power firmware coordination"
 	depends on ARM64 && OF_RESERVED_MEM && SUSPEND && ARM_PSCI_FW && CPU_IDLE
+	select MFD_SYSCON
 	help
 	  Coordinate the boot-loaded MCUPM firmware and provide a guarded
 	  vendor CPU_SUSPEND backend on MT6833. Firmware initialization and
