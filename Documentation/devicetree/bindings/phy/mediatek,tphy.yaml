@@ -78,6 +78,7 @@ properties:
       - items:
           - enum:
               - mediatek,mt2712-tphy
+              - mediatek,mt6833-tphy
               - mediatek,mt6893-tphy
               - mediatek,mt7629-tphy
               - mediatek,mt7981-tphy
