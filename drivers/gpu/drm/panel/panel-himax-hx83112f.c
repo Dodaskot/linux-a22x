@@ -249,6 +249,11 @@ static int hx83112f_disable(struct drm_panel *panel)
 	return 0;
 }
 
+static bool keep_reset_in_standby;
+module_param(keep_reset_in_standby, bool, 0644);
+MODULE_PARM_DESC(keep_reset_in_standby,
+		 "Leave reset deasserted after deep standby, as the vendor driver does");
+
 static int hx83112f_unprepare(struct drm_panel *panel)
 {
 	struct hx83112f *ctx = to_hx83112f(panel);
@@ -259,7 +264,13 @@ static int hx83112f_unprepare(struct drm_panel *panel)
 	msleep(110);
 	mipi_dsi_generic_write_seq_multi(&dsi_ctx, 0xb9, 0x83, 0x11, 0x2f);
 	mipi_dsi_generic_write_seq_multi(&dsi_ctx, 0xb1, 0x01);
-	gpiod_set_value_cansleep(ctx->reset, 1);
+	/*
+	 * A low RESX releases deep standby while IOVCC stays powered. The
+	 * vendor driver leaves reset high here; prepare() asserts it again
+	 * before the rails come back.
+	 */
+	if (!keep_reset_in_standby)
+		gpiod_set_value_cansleep(ctx->reset, 1);
 	hx83112f_power_off(ctx);
 
 	if (dsi_ctx.accum_err)
