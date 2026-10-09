@@ -215,6 +215,13 @@
 			};
 		};
 
+		i2c9_pins: i2c9-pins {
+			pins-bus {
+				pinmux = <PINMUX_GPIO141__FUNC_SCL9>,
+					 <PINMUX_GPIO142__FUNC_SDA9>;
+			};
+		};
+
 		i2c5_pins: i2c5-pins {
 			pins-bus {
 				pinmux = <PINMUX_GPIO107__FUNC_SCL5>,
@@ -297,16 +304,6 @@
 		};
 	};
 
-	/* VEMC, left enabled by the bootloader for the boot eMMC. */
-	reg_vemc: regulator-vemc {
-		compatible = "regulator-fixed";
-		regulator-name = "vemc";
-		regulator-min-microvolt = <3000000>;
-		regulator-max-microvolt = <3000000>;
-		regulator-always-on;
-		regulator-boot-on;
-	};
-
 	mmc0: mmc@11230000 {
 		compatible = "mediatek,mt8183-mmc";
 		reg = <0 0x11230000 0 0x10000>,
@@ -320,7 +317,8 @@
 		max-frequency = <200000000>;
 		cap-mmc-highspeed;
 		mmc-hs200-1_8v;
-		vmmc-supply = <&reg_vemc>;
+		/* MMC core powers the card off in suspend like the stock msdc path */
+		vmmc-supply = <&mt6359_vemc_reg>;
 		pinctrl-names = "default", "state_uhs";
 		pinctrl-0 = <&mmc0_pins>;
 		pinctrl-1 = <&mmc0_pins>;
@@ -484,6 +482,34 @@
 
 &imp_iic_wrap_ws {
 	status = "okay";
+};
+
+&imp_iic_wrap_s {
+	status = "okay";
+};
+
+/ {
+	/* SAR/grip sensor bus; the sensor (VIO28) scans from power-on otherwise */
+	i2c9_ml: i2c@11d01000 {
+		compatible = "mediatek,mt6833-i2c", "mediatek,mt8192-i2c";
+		reg = <0 0x11d01000 0 0x1000>,
+		      <0 0x10217900 0 0x180>;
+		interrupts = <0 121 4>;
+		clocks = <&imp_iic_wrap_s CLK_IMPS_AP_CLOCK_RO_I2C9>,
+			 <&infracfg_ao CLK_IFRAO_AP_DMA>;
+		clock-names = "main", "dma";
+		clock-div = <1>;
+		clock-frequency = <400000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2c9_pins>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		sar-sensor@20 {
+			compatible = "a22x,abov-sar";
+			reg = <0x20>;
+		};
+	};
 };
 
 / {
@@ -697,6 +723,14 @@
 			/* Explicit constraints for the rails managed by Linux. */
 			regulators {
 				/* Match the MT6359 codec's DAPM supply name. */
+				/* eMMC VCC; MT6359P table, voltage selector follows VM_MODE */
+				mt6359_vemc_reg: ldo_vemc_1 {
+					regulator-name = "vemc";
+					regulator-min-microvolt = <3000000>;
+					regulator-max-microvolt = <3000000>;
+					regulator-boot-on;
+				};
+
 				ldo_vaud18 {
 					regulator-name = "vaud18";
 					regulator-min-microvolt = <1800000>;

@@ -242,6 +242,15 @@ static int psci_mt6833_enter_s2idle(struct cpuidle_device *dev,
 	u32 state = mt6833_lpm_s2idle_active() ?
 		MT6833_LPM_SUSPEND_STATE : states[idx];
 
+	/*
+	 * s2idle_enter() kicks every CPU with wake_up_all_idle_cpus(). A CPU that
+	 * is already on its way into firmware then gets an immediate CPU_SUSPEND
+	 * return (reschedule SGI pending) that is reported as an error. Let the
+	 * idle loop handle the pending reschedule and come back instead.
+	 */
+	if (state == MT6833_LPM_SUSPEND_STATE && need_resched())
+		return idx;
+
 	/* Normal runtime entry remains the existing PSCI callback. Only this
 	 * frozen-tick s2idle path can select the guarded vendor system state.
 	 */

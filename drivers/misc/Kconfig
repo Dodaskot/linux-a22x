@@ -634,6 +634,13 @@ config MCHP_LAN966X_PCI
 	    - lan966x-miim (MDIO_MSCC_MIIM)
 	    - lan966x-switch (LAN966X_SWITCH)
 
+config A22X_ABOV_SAR
+	tristate "Samsung Galaxy A22 5G ABOV SAR sensor stop driver"
+	depends on I2C && OF
+	help
+	  Keeps the ABOV capacitive SAR/grip sensor of the Samsung Galaxy
+	  A22 5G stopped, as the stock driver does when grip sensing is off.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
