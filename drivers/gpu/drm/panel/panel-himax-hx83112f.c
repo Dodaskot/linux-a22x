@@ -249,7 +249,7 @@ static int hx83112f_disable(struct drm_panel *panel)
 	return 0;
 }
 
-static bool keep_reset_in_standby;
+static bool keep_reset_in_standby = true;
 module_param(keep_reset_in_standby, bool, 0644);
 MODULE_PARM_DESC(keep_reset_in_standby,
 		 "Leave reset deasserted after deep standby, as the vendor driver does");
