@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+obj-$(CONFIG_MTK_A22X_RESERVED_MEMORY) += mtk-a22x-reserved-memory.o
 obj-$(CONFIG_MTK_MT6833_LPM) += mtk-mt6833-lpm.o
 obj-$(CONFIG_MTK_MT6833_MODEM_POWER) += mtk-mt6833-modem-power.o
 obj-$(CONFIG_MTK_CMDQ) += mtk-cmdq-helper.o

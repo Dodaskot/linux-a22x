@@ -5,6 +5,15 @@
 menu "MediaTek SoC drivers"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
 
+config MTK_A22X_RESERVED_MEMORY
+	bool "Samsung A22 5G reserved memory quirks"
+	depends on ARM64 && OF_RESERVED_MEM
+	help
+	  Ignore the unused size-only Android ZMC pool on the Samsung A22 5G.
+	  Fixed firmware reservations and the Linux display CMA are retained.
+	  This runs before dynamic allocation and never edits bootloader data.
+	  Other boards and firmware-placed regions keep their reservations.
+
 config MTK_MT6833_MODEM_POWER
 	bool "MediaTek MT6833 guarded modem power ownership"
 	depends on PM && PM_GENERIC_DOMAINS && OF
