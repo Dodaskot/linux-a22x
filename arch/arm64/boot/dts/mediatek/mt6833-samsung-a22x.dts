@@ -1247,43 +1247,43 @@
 
 		opp-1650000000 {
 			opp-hz = /bits/ 64 <1650000000>;
-			opp-microvolt = <906250>;
+			opp-microvolt = <900000>;
 			required-opps = <&cci_opp_825>;
 		};
 
 		opp-1720000000 {
 			opp-hz = /bits/ 64 <1720000000>;
-			opp-microvolt = <925000>;
+			opp-microvolt = <900000>;
 			required-opps = <&cci_opp_825>;
 		};
 
 		opp-1790000000 {
 			opp-hz = /bits/ 64 <1790000000>;
-			opp-microvolt = <943750>;
+			opp-microvolt = <900000>;
 			required-opps = <&cci_opp_900>;
 		};
 
 		opp-1836000000 {
 			opp-hz = /bits/ 64 <1836000000>;
-			opp-microvolt = <950000>;
+			opp-microvolt = <900000>;
 			required-opps = <&cci_opp_900>;
 		};
 
 		opp-1906000000 {
 			opp-hz = /bits/ 64 <1906000000>;
-			opp-microvolt = <968750>;
+			opp-microvolt = <900000>;
 			required-opps = <&cci_opp_975>;
 		};
 
 		opp-1953000000 {
 			opp-hz = /bits/ 64 <1953000000>;
-			opp-microvolt = <981250>;
+			opp-microvolt = <900000>;
 			required-opps = <&cci_opp_975>;
 		};
 
 		opp-2000000000 {
 			opp-hz = /bits/ 64 <2000000000>;
-			opp-microvolt = <993750>;
+			opp-microvolt = <900000>;
 			required-opps = <&cci_opp_975>;
 		};
 	};
