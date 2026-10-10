@@ -7,6 +7,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/of.h>
 #include <net/nfc/nci_core.h>
 
 #include "s3fwrn5.h"
@@ -122,10 +123,33 @@ static int s3fwrn5_nci_send(struct nci_dev *ndev, struct sk_buff *skb)
 	return 0;
 }
 
+static int s3fwrn5_nci_init(struct nci_dev *ndev)
+{
+	struct s3fwrn5_info *info = nci_get_drvdata(ndev);
+	u8 clk_speed = 0x12;
+
+	if (!of_device_is_compatible(info->pdev->of_node,
+				     "samsung,s3nrn74-i2c"))
+		return 0;
+
+	/* A22x RN74 vendor HAL: one-byte FW_CFG, 0x12 = 26 MHz PLL.
+	 * Configure the running controller before CORE_RESET, without entering
+	 * the downloader or changing the stored RF calibration.
+	 */
+	return nci_prop_cmd(ndev, NCI_PROP_FW_CFG, sizeof(clk_speed), &clk_speed);
+}
+
 static int s3fwrn5_nci_post_setup(struct nci_dev *ndev)
 {
 	struct s3fwrn5_info *info = nci_get_drvdata(ndev);
 	int ret;
+
+	/* Use retained S3NRN74 firmware, never the S3FWRN5 download protocol.
+	 * Initial bring-up leaves controller nonvolatile state untouched.
+	 */
+	if (of_device_is_compatible(info->pdev->of_node,
+				    "samsung,s3nrn74-i2c"))
+		return 0;
 
 	if (s3fwrn5_firmware_init(info)) {
 		//skip bootloader mode
@@ -152,6 +176,7 @@ static const struct nci_ops s3fwrn5_nci_ops = {
 	.open = s3fwrn5_nci_open,
 	.close = s3fwrn5_nci_close,
 	.send = s3fwrn5_nci_send,
+	.init = s3fwrn5_nci_init,
 	.post_setup = s3fwrn5_nci_post_setup,
 	.prop_ops = s3fwrn5_nci_prop_ops,
 	.n_prop_ops = ARRAY_SIZE(s3fwrn5_nci_prop_ops),

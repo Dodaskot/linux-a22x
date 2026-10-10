@@ -11,6 +11,8 @@
 #include <linux/gpio/consumer.h>
 #include <linux/delay.h>
 #include <linux/module.h>
+#include <linux/of.h>
+#include <linux/pm.h>
 
 #include <net/nfc/nfc.h>
 
@@ -204,6 +206,34 @@ static void s3fwrn5_i2c_remove(struct i2c_client *client)
 	s3fwrn5_remove(phy->common.ndev);
 }
 
+static int s3fwrn5_i2c_suspend(struct device *dev)
+{
+	struct s3fwrn5_i2c_phy *phy = i2c_get_clientdata(to_i2c_client(dev));
+	int ret = 0;
+
+	if (!of_device_is_compatible(dev->of_node, "samsung,s3nrn74-i2c"))
+		return 0;
+
+	/* NFC wake/polling in system sleep is not supported on A22x yet.
+	 * Userspace must stop discovery and power the NCI device down first.
+	 * Keep the NCI state consistent: never silently reset an open device.
+	 */
+	mutex_lock(&phy->common.mutex);
+	if (phy->common.mode != S3FWRN5_MODE_COLD ||
+	    gpiod_get_value(phy->common.gpio_en) != 1 ||
+	    gpiod_get_value(phy->common.gpio_fw_wake) != 0)
+		ret = -EBUSY;
+	mutex_unlock(&phy->common.mutex);
+
+	if (ret)
+		dev_warn(dev, "NFC must be powered down before system suspend\n");
+	else
+		dev_dbg(dev, "suspend: NFC cold, VEN high and FIRM low\n");
+	return ret;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(s3fwrn5_i2c_pm_ops, s3fwrn5_i2c_suspend, NULL);
+
 static const struct i2c_device_id s3fwrn5_i2c_id_table[] = {
 	{ .name = S3FWRN5_I2C_DRIVER_NAME },
 	{ }
@@ -212,6 +242,7 @@ MODULE_DEVICE_TABLE(i2c, s3fwrn5_i2c_id_table);
 
 static const struct of_device_id of_s3fwrn5_i2c_match[] __maybe_unused = {
 	{ .compatible = "samsung,s3fwrn5-i2c", },
+	{ .compatible = "samsung,s3nrn74-i2c", },
 	{}
 };
 MODULE_DEVICE_TABLE(of, of_s3fwrn5_i2c_match);
@@ -220,6 +251,7 @@ static struct i2c_driver s3fwrn5_i2c_driver = {
 	.driver = {
 		.name = S3FWRN5_I2C_DRIVER_NAME,
 		.of_match_table = of_match_ptr(of_s3fwrn5_i2c_match),
+		.pm = pm_sleep_ptr(&s3fwrn5_i2c_pm_ops),
 	},
 	.probe = s3fwrn5_i2c_probe,
 	.remove = s3fwrn5_i2c_remove,

@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR MIT)
+/* Separate retained-firmware NCI image; standard sleep image keeps NFC off. */
+#include "mt6833-samsung-a22x-native-display.dts"
+
+&pio_ml {
+	/delete-node/ nfc-firmware-hog;
+	/delete-node/ nfc-enable-hog;
+
+	nfc_i2c3_pins: nfc-i2c3-pins {
+		pins {
+			pinmux = <PINMUX_GPIO103__FUNC_SCL3>,
+				 <PINMUX_GPIO104__FUNC_SDA3>;
+			bias-pull-up;
+		};
+	};
+
+	nfc_irq_pins: nfc-irq-pins {
+		pins {
+			pinmux = <PINMUX_GPIO5__FUNC_GPIO5>;
+			input-enable;
+			bias-disable;
+		};
+	};
+};
+
+&imp_iic_wrap_e {
+	status = "okay";
+};
+
+/ {
+	/* The LK-overlay stock i2c3 node remains disabled. */
+	i2c3_nfc_ml: i2c@11cb0000 {
+		compatible = "mediatek,mt6833-i2c", "mediatek,mt8192-i2c";
+		reg = <0 0x11cb0000 0 0x1000>,
+		      <0 0x10217300 0 0x80>;
+		interrupts = <0 115 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&imp_iic_wrap_e CLK_IMPE_AP_CLOCK_RO_I2C3>,
+			 <&infracfg_ao CLK_IFRAO_AP_DMA>;
+		clock-names = "main", "dma";
+		clock-div = <1>;
+		clock-frequency = <400000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&nfc_i2c3_pins>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		nfc@27 {
+			compatible = "samsung,s3nrn74-i2c";
+			reg = <0x27>;
+			interrupts-extended = <&pio_ml 5 IRQ_TYPE_EDGE_RISING>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&nfc_irq_pins>;
+			/* Driver raw high = OFF, raw low = ON (N5 polarity). */
+			en-gpios = <&pio_ml 7 GPIO_ACTIVE_HIGH>;
+			wake-gpios = <&pio_ml 6 GPIO_ACTIVE_HIGH>;
+			/* GPIO81 keeps its existing SRCLKENAI0 clock-request mux. */
+		};
+	};
+};

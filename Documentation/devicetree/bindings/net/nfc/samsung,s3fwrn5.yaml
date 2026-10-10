@@ -13,6 +13,7 @@ properties:
   compatible:
     enum:
       - samsung,s3fwrn5-i2c
+      - samsung,s3nrn74-i2c
       - samsung,s3fwrn82
 
   en-gpios:
@@ -58,7 +59,9 @@ allOf:
       properties:
         compatible:
           contains:
-            const: samsung,s3fwrn5-i2c
+            enum:
+              - samsung,s3fwrn5-i2c
+              - samsung,s3nrn74-i2c
     then:
       required:
         - interrupts
