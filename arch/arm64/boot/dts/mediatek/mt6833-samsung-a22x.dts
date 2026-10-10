@@ -1084,6 +1084,18 @@
 			opp-hz = /bits/ 64 <975000000>;
 			opp-microvolt = <825000>;
 		};
+
+		cci_opp_1050: opp-1050000000 {
+			phandle = <0xf132>;
+			opp-hz = /bits/ 64 <1050000000>;
+			opp-microvolt = <850000>;
+		};
+
+		cci_opp_1131: opp-1131000000 {
+			phandle = <0xf133>;
+			opp-hz = /bits/ 64 <1131000000>;
+			opp-microvolt = <875000>;
+		};
 	};
 
 	cluster0_opp: opp-table-cluster0 {
@@ -1285,6 +1297,19 @@
 			opp-hz = /bits/ 64 <2000000000>;
 			opp-microvolt = <900000>;
 			required-opps = <&cci_opp_975>;
+		};
+
+		/* This handset only: qualify against captured FY EEM data. */
+		opp-2087000000 {
+			opp-hz = /bits/ 64 <2087000000>;
+			opp-microvolt = <900000>;
+			required-opps = <&cci_opp_1050>;
+		};
+
+		opp-2203000000 {
+			opp-hz = /bits/ 64 <2203000000>;
+			opp-microvolt = <900000>;
+			required-opps = <&cci_opp_1131>;
 		};
 	};
 };
