@@ -24,6 +24,7 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/usb/pd.h>
 #include <dt-bindings/pinctrl/mt6833-pinfunc.h>
 #include <dt-bindings/pinctrl/mt65xx.h>
 #include "mt6833-samsung-a22x-lk-compat.dtsi"
@@ -374,11 +375,18 @@
 		interrupts = <0 96 4>;
 		interrupt-names = "mc";
 		phys = <&u2port0 PHY_TYPE_USB2>;
-		dr_mode = "peripheral";
+		dr_mode = "otg";
+		usb-role-switch;
 		clocks = <&infracfg_ao CLK_IFRAO_SSUSB>,
 			 <&topckgen CLK_TOP_USB_TOP_SEL>,
 			 <&topckgen CLK_TOP_UNIVPLL_D5_D4>;
 		clock-names = "main", "mcu", "univpll";
+
+		port {
+			usb_otg_hs: endpoint {
+				remote-endpoint = <&typec_hs>;
+			};
+		};
 	};
 
 	/*
@@ -615,7 +623,54 @@
 			mt6360_chg: charger {
 				compatible = "mediatek,mt6360-chg";
 				richtek,vinovp-microvolt = <6500000>;
+
+				otg_vbus: usb-otg-vbus-regulator {
+					regulator-name = "usb-otg-vbus";
+					regulator-min-microvolt = <5000000>;
+					regulator-max-microvolt = <5000000>;
+				};
 			};
+
+			mt6360_tcpc: tcpc {
+				compatible = "mediatek,mt6360-tcpc";
+				/* A22X DTBO overrides the base GPIO24 with GPIO9. */
+				interrupts-extended = <&pio_ml 9 IRQ_TYPE_LEVEL_LOW>;
+				interrupt-names = "PD_IRQB";
+				pinctrl-names = "default";
+				pinctrl-0 = <&typec_irq_pin>;
+				vbus-supply = <&otg_vbus>;
+
+				connector {
+					compatible = "usb-c-connector";
+					label = "USB-C";
+					data-role = "dual";
+					power-role = "dual";
+					try-power-role = "sink";
+					source-pdos = <PDO_FIXED(5000, 500,
+						PDO_FIXED_DUAL_ROLE | PDO_FIXED_DATA_SWAP |
+						PDO_FIXED_USB_COMM)>;
+					sink-pdos = <PDO_FIXED(5000, 2000,
+						PDO_FIXED_DUAL_ROLE | PDO_FIXED_DATA_SWAP |
+						PDO_FIXED_USB_COMM)>;
+					op-sink-microwatt = <2500000>;
+
+					port {
+						typec_hs: endpoint {
+							remote-endpoint = <&usb_otg_hs>;
+						};
+					};
+				};
+			};
+		};
+	};
+};
+
+&pio_ml {
+	typec_irq_pin: typec-irq-pin {
+		pins {
+			pinmux = <PINMUX_GPIO9__FUNC_GPIO9>;
+			input-enable;
+			bias-pull-up;
 		};
 	};
 };
