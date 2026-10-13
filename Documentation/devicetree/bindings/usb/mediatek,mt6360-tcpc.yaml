@@ -26,6 +26,9 @@ properties:
     items:
       - const: PD_IRQB
 
+  vbus-supply:
+    description: Regulator supplying VBUS when the port is a source.
+
   connector:
     type: object
     $ref: ../connector/usb-connector.yaml#
