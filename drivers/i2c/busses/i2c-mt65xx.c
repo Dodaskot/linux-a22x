@@ -1415,12 +1415,12 @@ static int mtk_i2c_probe(struct platform_device *pdev)
 	i2c->adap.quirks = i2c->dev_comp->quirks;
 	i2c->adap.timeout = 2 * HZ;
 	i2c->adap.retries = 1;
-	i2c->adap.bus_regulator = devm_regulator_get_optional(&pdev->dev, "vbus");
-	if (IS_ERR(i2c->adap.bus_regulator)) {
-		if (PTR_ERR(i2c->adap.bus_regulator) == -ENODEV)
-			i2c->adap.bus_regulator = NULL;
-		else
-			return PTR_ERR(i2c->adap.bus_regulator);
+	/* A child's USB VBUS supply must not become the I2C bus supply. */
+	if (of_property_present(pdev->dev.of_node, "vbus-supply")) {
+		i2c->adap.bus_regulator = devm_regulator_get_optional(&pdev->dev, "vbus");
+		if (IS_ERR(i2c->adap.bus_regulator))
+			return dev_err_probe(&pdev->dev, PTR_ERR(i2c->adap.bus_regulator),
+					     "Failed to get I2C bus supply\n");
 	}
 
 	ret = mtk_i2c_parse_dt(pdev->dev.of_node, i2c);
