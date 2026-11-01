@@ -813,8 +813,9 @@ config TOUCHSCREEN_FOCALTECH_FT8722
 	  controller connected over SPI. Driver selection uses the active
 	  FT8722 panel name in the kernel command line, so this must be built in.
 
-	  This driver provides basic touch reporting. Firmware update,
-	  gestures, and factory-test interfaces are not supported.
+	  The driver loads the bundled FT8722 Truly firmware during probe and
+	  provides basic touch reporting. Gestures and factory-test interfaces
+	  are not supported.
 
 config TOUCHSCREEN_RASPBERRYPI_FW
 	tristate "Raspberry Pi's firmware base touch screen support"
