@@ -805,6 +805,16 @@ config TOUCHSCREEN_EDT_FT5X06
 	  To compile this driver as a module, choose M here: the
 	  module will be called edt-ft5x06.
 
+config TOUCHSCREEN_FOCALTECH_FT8722
+	tristate "FocalTech FT8722 SPI touchscreen"
+	depends on SPI
+	help
+	  Say Y or M here to enable support for the FocalTech FT8722
+	  touchscreen controller connected over SPI.
+
+	  This driver provides basic touch reporting. Firmware update,
+	  gestures, and factory-test interfaces are not supported.
+
 config TOUCHSCREEN_RASPBERRYPI_FW
 	tristate "Raspberry Pi's firmware base touch screen support"
 	depends on RASPBERRYPI_FIRMWARE || (RASPBERRYPI_FIRMWARE=n && COMPILE_TEST)
