@@ -450,7 +450,7 @@
 	status = "okay";
 
 	novatek@0 {
-		compatible = "himax,hx83112f", "himax,common";
+		compatible = "himax,hx83112f", "himax,common", "focaltech,ft8722";
 		reg = <0>;
 		spi-max-frequency = <9600000>;
 		pinctrl-names = "default";
