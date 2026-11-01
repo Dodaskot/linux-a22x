@@ -12,6 +12,7 @@
 #include <linux/input.h>
 #include <linux/input/mt.h>
 #include <linux/input/touchscreen.h>
+#include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/module.h>
@@ -27,6 +28,8 @@
 #define FT8722_SPI_DUMMY_SIZE	3
 #define FT8722_SPI_CRC_SIZE	2
 #define FT8722_SPI_READ_CMD	0xa0
+#define FT8722_SPI_RETRIES	3
+#define FT8722_SPI_RETRY_DELAY_US	150
 #define FT8722_TOUCH_DATA_CMD	0x01
 #define FT8722_RESET_DELAY_MS	10
 #define FT8722_STARTUP_DELAY_MS	200
@@ -40,6 +43,13 @@ struct ft8722_ts {
 	u32 max_x;
 	u32 max_y;
 };
+
+static bool ft8722_panel_selected(void)
+{
+	return saved_command_line &&
+	       strstr(saved_command_line,
+		      "ft8722_fhdp_wt_dsi_vdo_cphy_90hz_truly");
+}
 
 static u16 ft8722_crc_kermit(const u8 *data, size_t len)
 {
@@ -69,7 +79,8 @@ static int ft8722_spi_read(struct ft8722_ts *ts, u8 command,
 		.len = transfer_len,
 	};
 	u16 received_crc, calculated_crc;
-	int ret;
+	unsigned int attempt;
+	int ret = -EIO;
 
 	if (!len || len > FT8722_FRAME_SIZE)
 		return -EINVAL;
@@ -79,23 +90,29 @@ static int ft8722_spi_read(struct ft8722_ts *ts, u8 command,
 	tx[2] = (len >> 8) & 0xff;
 	tx[3] = len & 0xff;
 
-	ret = spi_sync_transfer(ts->spi, &transfer, 1);
-	if (ret)
-		return ret;
-	udelay(150);
+	for (attempt = 0; attempt < FT8722_SPI_RETRIES; attempt++) {
+		memset(rx, 0, sizeof(rx));
+		ret = spi_sync_transfer(ts->spi, &transfer, 1);
+		if (!ret) {
+			if (rx[3] & 0xa0) {
+				ret = -EIO;
+			} else {
+				received_crc = (rx[prefix_len + len + 1] << 8) |
+					       rx[prefix_len + len];
+				calculated_crc =
+					ft8722_crc_kermit(rx + prefix_len, len);
+				if (received_crc == calculated_crc) {
+					memcpy(data, rx + prefix_len, len);
+					return 0;
+				}
+				ret = -EBADMSG;
+			}
+		}
 
-	if (rx[3] & 0xa0)
-		return -EIO;
+		udelay(FT8722_SPI_RETRY_DELAY_US);
+	}
 
-	received_crc = (rx[prefix_len + len + 1] << 8) |
-		       rx[prefix_len + len];
-	calculated_crc = ft8722_crc_kermit(rx + prefix_len, len);
-	if (received_crc != calculated_crc)
-		return -EBADMSG;
-
-	memcpy(data, rx + prefix_len, len);
-
-	return 0;
+	return ret;
 }
 
 static void ft8722_release_slots(struct ft8722_ts *ts,
@@ -199,6 +216,10 @@ static int ft8722_probe(struct spi_device *spi)
 	unsigned long irq_flags;
 	int ret;
 
+	if (!ft8722_panel_selected())
+		return -ENODEV;
+	dev_info(&spi->dev, "selected by FT8722 panel name in bootargs\n");
+
 	spi->mode = SPI_MODE_0;
 	spi->bits_per_word = 8;
 	ret = spi_setup(spi);
@@ -233,7 +254,7 @@ static int ft8722_probe(struct spi_device *spi)
 		return dev_err_probe(dev, -EINVAL,
 				     "invalid touchscreen dimensions\n");
 
-	ts->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
+	ts->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
 	if (IS_ERR(ts->reset_gpio))
 		return dev_err_probe(dev, PTR_ERR(ts->reset_gpio),
 				     "failed to get reset GPIO\n");

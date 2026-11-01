@@ -806,11 +806,12 @@ config TOUCHSCREEN_EDT_FT5X06
 	  module will be called edt-ft5x06.
 
 config TOUCHSCREEN_FOCALTECH_FT8722
-	tristate "FocalTech FT8722 SPI touchscreen"
-	depends on SPI
+	bool "FocalTech FT8722 SPI touchscreen"
+	depends on SPI && OF
 	help
-	  Say Y or M here to enable support for the FocalTech FT8722
-	  touchscreen controller connected over SPI.
+	  Say Y here to enable support for the FocalTech FT8722 touchscreen
+	  controller connected over SPI. Driver selection uses the active
+	  FT8722 panel name in the kernel command line, so this must be built in.
 
 	  This driver provides basic touch reporting. Firmware update,
 	  gestures, and factory-test interfaces are not supported.
@@ -1413,14 +1414,15 @@ config TOUCHSCREEN_ZINITIX
 	  module will be called zinitix.
 
 config TOUCHSCREEN_HIMAX_HX83112F
-	tristate "Himax HX83112F zero-flash SPI touchscreen"
+	bool "Himax HX83112F zero-flash SPI touchscreen"
 	depends on SPI && OF
 	depends on DRM_PANEL || !DRM_PANEL
 	select FW_LOADER
 	help
 	  Himax HX83112F in-cell (TDDI) touch controller on SPI, as used in
 	  the Samsung Galaxy A22 5G. The controller has no flash; firmware is
-	  loaded into its SRAM at every boot.
+	  loaded into its SRAM at every boot. This driver declines to probe
+	  when the FT8722 panel name is present in the kernel command line.
 
 config TOUCHSCREEN_HIMAX_HX83112B
 	tristate "Himax hx83112b touchscreen driver"

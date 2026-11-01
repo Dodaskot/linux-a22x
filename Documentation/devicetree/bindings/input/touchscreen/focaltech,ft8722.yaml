@@ -4,7 +4,13 @@
 $id: http://devicetree.org/schemas/input/touchscreen/focaltech,ft8722.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: FocalTech FT8722 SPI touchscreen controller
+title: Samsung A22x SPI touchscreen controller variants
+
+description: |
+  The A22x SPI touchscreen may use either a Himax HX83112F or FocalTech
+  FT8722 controller. Both compatibles may be listed on the same SPI node;
+  the drivers use the active panel name in the kernel command line to ensure
+  only the matching driver binds.
 
 allOf:
   - $ref: touchscreen.yaml#
@@ -12,7 +18,12 @@ allOf:
 
 properties:
   compatible:
-    const: focaltech,ft8722
+    oneOf:
+      - const: focaltech,ft8722
+      - items:
+          - const: himax,hx83112f
+          - const: himax,common
+          - const: focaltech,ft8722
 
   reg:
     maxItems: 1
@@ -57,7 +68,7 @@ examples:
       #size-cells = <0>;
 
       touchscreen@0 {
-        compatible = "focaltech,ft8722";
+        compatible = "himax,hx83112f", "himax,common", "focaltech,ft8722";
         reg = <0>;
         spi-max-frequency = <9600000>;
         interrupt-parent = <&gpio>;

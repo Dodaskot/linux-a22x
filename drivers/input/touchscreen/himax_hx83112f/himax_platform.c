@@ -6,10 +6,13 @@
  * plain SPI driver: reset and interrupt come from the device tree, the IC
  * firmware (Himax_firmware_fw_jdi.bin) is loaded through request_firmware().
  */
+#include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/pm.h>
 #include <linux/property.h>
+#include <linux/string.h>
 #include <drm/drm_panel.h>
 #include "himax_platform.h"
 #include "himax_common.h"
@@ -28,6 +31,13 @@ static struct gpio_desc *hx_irq_gpio;
 static struct drm_panel_follower hx_panel_follower;
 static bool hx_follows_panel;
 struct device *g_device;
+
+static bool himax_ft8722_panel_selected(void)
+{
+	return saved_command_line &&
+	       strstr(saved_command_line,
+		      "ft8722_fhdp_wt_dsi_vdo_cphy_90hz_truly");
+}
 
 int himax_dev_set(struct himax_ts_data *ts)
 {
@@ -250,6 +260,11 @@ static int himax_hx83112f_probe(struct spi_device *spi)
 {
 	struct himax_ts_data *ts;
 	int ret;
+
+	if (himax_ft8722_panel_selected()) {
+		dev_dbg(&spi->dev, "skipping HX83112F for FT8722 panel\n");
+		return -ENODEV;
+	}
 
 	hx_reset_gpio = devm_gpiod_get_optional(&spi->dev, "reset", GPIOD_ASIS);
 	if (IS_ERR(hx_reset_gpio))
