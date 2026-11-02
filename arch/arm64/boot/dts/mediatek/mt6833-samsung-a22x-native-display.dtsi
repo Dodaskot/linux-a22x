@@ -1,0 +1,217 @@
+// SPDX-License-Identifier: GPL-2.0-only
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+
+/ {
+	modem_power_ml: modem@10209000 {
+		compatible = "mediatek,mt6833-modem-power";
+		reg = <0 0x10209000 0 0x1000>;
+		power-domains = <&spm MT6833_POWER_DOMAIN_MD1>;
+		mediatek,spm = <&scpsys_ml>;
+		wakeup-source;
+	};
+	/* The stock MCUPM controller stays disabled; this driver owns only
+	 * the platform, LPM and disabled-EEM mailboxes of boot-loaded firmware.
+	 * Reuse the existing reservation: adding a new carveout breaks LK.
+	 */
+	lpm_ml: power-controller@c55fce0 {
+		compatible = "mediatek,mt6833-lpm";
+		reg = <0 0x0c55fce0 0 0xa0>, <0 0x0c55fb00 0 0xa0>,
+		      <0 0x0c562004 0 4>, <0 0x0c562000 0 4>,
+		      <0 0x0c560074 0 4>, <0 0x0c560078 0 4>,
+		      <0 0x0c55ff60 0 0xa0>;
+		reg-names = "lpm-mailbox", "platform-mailbox", "tx-set", "tx-status",
+			    "rx-clear", "rx-status", "eem-mailbox";
+		memory-region = <&mcupm_share>;
+		mediatek,firmware-config = <&mtk_lpm>;
+		/* Unused board clocks left enabled by LK; opt-in CCF cleanup.
+		 * Native display uses mainpll/univpll, not the unclaimed MMPLL.
+		 */
+		clocks = <&infracfg_ao CLK_IFRAO_UART1>,
+			 <&infracfg_ao CLK_IFRAO_SPI0>,
+			 <&infracfg_ao CLK_IFRAO_SPI3>,
+			 <&infracfg_ao CLK_IFRAO_SPI4>,
+			 <&infracfg_ao CLK_IFRAO_SPI5>,
+			 <&infracfg_ao CLK_IFRAO_SPI6_CK>,
+			 <&infracfg_ao CLK_IFRAO_SPI7_CK>,
+			 <&mdp_clocks_ml CLK_MDP_RDMA0>,
+			 <&mdp_clocks_ml CLK_MDP_RDMA1>,
+			 <&mdp_clocks_ml CLK_MDP_SMI0>,
+			 <&mdp_clocks_ml CLK_MDP_WROT0>,
+			 <&mdp_clocks_ml CLK_MDP_WROT1>,
+			 <&mdp_clocks_ml CLK_MDP_FAKE_ENG0>,
+			 <&apmixed CLK_APMIXED_MMPLL>,
+			 <&infracfg_ao CLK_IFRAO_UFS>,
+			 <&infracfg_ao CLK_IFRAO_UNIPRO_SYSCLK>,
+			 <&infracfg_ao CLK_IFRAO_UFS_MP_SAP_BCLK>,
+			 <&topckgen CLK_TOP_UFS_SEL>;
+		clock-names = "boot-uart1", "boot-spi0", "boot-spi3", "boot-spi4",
+			      "boot-spi5", "boot-spi6", "boot-spi7",
+			      "boot-mdp-rdma0", "boot-mdp-rdma1", "boot-mdp-smi0",
+			      "boot-mdp-wrot0", "boot-mdp-wrot1", "boot-mdp-fake0",
+			      "boot-mmpll",
+			      "boot-ufs", "boot-unipro", "boot-ufs-bclk",
+			      "boot-ufs-source";
+		/* This eMMC board has no active UFS controller. Gating is opt-in. */
+		mediatek,unused-ufs = <&ufshci>;
+		mediatek,spm = <&scpsys_ml>;
+	};
+
+	mdp_clocks_ml: clock-controller@1f000000 {
+		compatible = "mediatek,mt6833-mdp-clocks";
+		reg = <0 0x1f000000 0 0x1000>;
+		#clock-cells = <1>;
+		clocks = <&topckgen CLK_TOP_MDP_SEL>;
+		clock-names = "bus";
+		mediatek,spm = <&scpsys_ml>;
+		/* MDP gate registers share DISP power and bus protection. */
+		power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
+	};
+
+	aliases {
+		rdma0 = &disp_rdma0_ml;
+		mutex0 = &disp_mutex_ml;
+		dsi0 = &dsi0_ml;
+	};
+
+	chosen {
+		framebuffer@7c9b0000 {
+			status = "disabled";
+		};
+	};
+
+	/* Separate sibling topology: LK modifies its original /dsi@... nodes. */
+	display-ml {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/* No power-domain dependency: SCPSYS needs these before registration. */
+		mm_clk_ml: clock-controller-ml@14000000 {
+			compatible = "mediatek,mt6833-display-clocks";
+			reg = <0 0x14000000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		mmsys_ml: syscon@14000000 {
+			compatible = "mediatek,mt6833-display", "syscon";
+			reg = <0 0x14000000 0 0x1000>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
+		};
+
+		disp_mutex_ml: mutex@14001000 {
+			compatible = "mediatek,mt6833-disp-mutex";
+			reg = <0 0x14001000 0 0x1000>;
+			clocks = <&mm_clk_ml CLK_MM_DISP_MUTEX0>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
+		};
+
+		disp_rdma0_ml: rdma@14007000 {
+			compatible = "mediatek,mt6833-disp-rdma";
+			reg = <0 0x14007000 0 0x1000>, <0 0x14004000 0 0x1000>;
+			reg-names = "rdma", "larb";
+			interrupts = <GIC_SPI 257 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&mm_clk_ml CLK_MM_DISP_RDMA0>,
+				 <&mm_clk_ml CLK_MM_SMI_INFRA>,
+				 <&mm_clk_ml CLK_MM_SMI_COMMON>,
+				 <&mm_clk_ml CLK_MM_SMI_GALS>,
+				 <&mm_clk_ml CLK_MM_SMI_IOMMU>;
+			clock-names = "rdma", "smi-infra", "smi-common", "smi-gals", "smi-iommu";
+			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
+		};
+
+		mipi_tx0_ml: phy@11e50000 {
+			compatible = "mediatek,mt6833-mipi-tx-cphy";
+			reg = <0 0x11e50000 0 0x1000>;
+			clocks = <&uart_clk>;
+			#clock-cells = <0>;
+			#phy-cells = <0>;
+			clock-output-names = "mipi_tx0_ml_pll";
+		};
+
+		dsi0_ml: dsi-ml@14013000 {
+			compatible = "mediatek,mt6833-dsi-cphy";
+			reg = <0 0x14013000 0 0x1000>;
+			interrupts = <GIC_SPI 269 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&mm_clk_ml CLK_MM_DSI0>,
+				 <&mm_clk_ml CLK_MM_DSI0_DSI_CK_DOMAIN>, <&mipi_tx0_ml>;
+			clock-names = "engine", "digital", "hs";
+			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
+			phys = <&mipi_tx0_ml>;
+			phy-names = "dphy";
+			mediatek,cphy-timing = <35 26>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			panel_ml: panel@0 {
+				compatible = "wt,ft8722-fhdp-wt-dsi-vdo-cphy-90hz-truly";
+				reg = <0>;
+				reset-gpios = <&pio_ml 86 GPIO_ACTIVE_LOW>;
+				pm-enable-gpios = <&pio_ml 136 GPIO_ACTIVE_HIGH>;
+				bias-gpios = <&pio_ml 137 GPIO_ACTIVE_HIGH>,
+					     <&pio_ml 138 GPIO_ACTIVE_HIGH>;
+				backlight = <&backlight>;
+				port {
+					panel_in_ml: endpoint {
+						remote-endpoint = <&dsi_out_ml>;
+					};
+				};
+			};
+
+			port {
+				dsi_out_ml: endpoint {
+					remote-endpoint = <&panel_in_ml>;
+				};
+			};
+		};
+	};
+};
+
+&spi1 {
+	novatek@0 {
+		panel = <&panel_ml>;
+	};
+};
+
+&spm {
+	power-domain@7 {
+		reg = <MT6833_POWER_DOMAIN_MD1>;
+		mediatek,infracfg = <&infracfg_ao>;
+		#power-domain-cells = <0>;
+	};
+	power-domain@6 {
+		reg = <MT6833_POWER_DOMAIN_DISP>;
+		clocks = <&topckgen CLK_TOP_DISP_SEL>,
+			 <&topckgen CLK_TOP_MDP_SEL>,
+			 <&mm_clk_ml CLK_MM_SMI_INFRA>,
+			 <&mm_clk_ml CLK_MM_SMI_COMMON>,
+			 <&mm_clk_ml CLK_MM_SMI_GALS>,
+			 <&mm_clk_ml CLK_MM_SMI_IOMMU>,
+			 <&mm_clk_ml CLK_MM_APB_BUS>;
+		clock-names = "disp", "mdp", "smi-infra", "smi-common", "smi-gals",
+			      "smi-iommu", "mm-apb";
+		mediatek,infracfg = <&infracfg_ao>;
+		#power-domain-cells = <0>;
+	};
+};
+
+/* N5 NFC VEN is active-low (unlike N3). LK leaves it enabled, keeping
+ * GPIO81/SRCLKENAI0 asserted and preventing 26 MHz/INFRA power-off.
+ * Hold NFC off until a native NFC driver takes ownership of both GPIOs.
+ * Do not mask or remux its clock-request input.
+ */
+&pio_ml {
+	nfc-firmware-hog {
+		gpio-hog;
+		gpios = <6 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "nfc-firmware";
+	};
+
+	nfc-enable-hog {
+		gpio-hog;
+		gpios = <7 GPIO_ACTIVE_LOW>;
+		output-low;
+		line-name = "nfc-enable";
+	};
+};

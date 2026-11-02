@@ -1,0 +1,14 @@
+  CC      drivers/gpu/drm/panel/panel-wt-truly-ft8722.o
+make[4]: *** [scripts/Makefile.build:549: drivers/input/misc] Interrupt
+make[4]: *** [scripts/Makefile.build:549: drivers/usb/storage] Interrupt
+make[4]: *** [scripts/Makefile.build:549: drivers/net/dsa] Interrupt
+make[3]: *** [scripts/Makefile.build:549: drivers/usb] Interrupt
+make[3]: *** [scripts/Makefile.build:549: drivers/input] Interrupt
+make[3]: *** [scripts/Makefile.build:549: drivers/net] Interrupt
+make[6]: *** [scripts/Makefile.build:289: drivers/gpu/drm/panel/panel-wt-truly-ft8722.o] Interrupt
+make[5]: *** [scripts/Makefile.build:549: drivers/gpu/drm/panel] Interrupt
+make[4]: *** [scripts/Makefile.build:549: drivers/gpu/drm] Interrupt
+make[3]: *** [scripts/Makefile.build:549: drivers/gpu] Interrupt
+make[2]: *** [scripts/Makefile.build:549: drivers] Interrupt
+make[1]: *** [/opt/drives/kernel/a22x-postmarketOS-kernel/Makefile:2187: .] Interrupt
+make: *** [Makefile:248: __sub-make] Interrupt
