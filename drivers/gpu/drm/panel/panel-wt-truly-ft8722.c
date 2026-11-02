@@ -729,26 +729,26 @@ static int truly_probe(struct mipi_dsi_device *dsi)
 			return -EPROBE_DEFER;
 	}
 
-	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
+	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_ASIS);
 	if (IS_ERR(ctx->reset_gpio)) {
 		dev_info(dev, "cannot get reset-gpios %ld\n",
 			 PTR_ERR(ctx->reset_gpio));
 		return PTR_ERR(ctx->reset_gpio);
 	}
-    ctx->pm_gpio = devm_gpiod_get(dev, "pm-enable", GPIOD_OUT_LOW);
+    ctx->pm_gpio = devm_gpiod_get(dev, "pm-enable", GPIOD_ASIS);
 	if (IS_ERR(ctx->pm_gpio)) {
 		dev_info(dev, "cannot get pm_gpio %ld\n",
 			 PTR_ERR(ctx->pm_gpio));
 		return PTR_ERR(ctx->pm_gpio);
 	}
-	ctx->bias_pos = devm_gpiod_get_index(dev, "bias", 0, GPIOD_OUT_LOW);
+	ctx->bias_pos = devm_gpiod_get_index(dev, "bias", 0, GPIOD_ASIS);
 	if (IS_ERR(ctx->bias_pos)) {
 		dev_info(dev, "cannot get bias-gpios 0 %ld\n",
 			 PTR_ERR(ctx->bias_pos));
 		return PTR_ERR(ctx->bias_pos);
 	}
 
-	ctx->bias_neg = devm_gpiod_get_index(dev, "bias", 1, GPIOD_OUT_LOW);
+	ctx->bias_neg = devm_gpiod_get_index(dev, "bias", 1, GPIOD_ASIS);
 	if (IS_ERR(ctx->bias_neg)) {
 		dev_info(dev, "cannot get bias-gpios 1 %ld\n",
 			 PTR_ERR(ctx->bias_neg));

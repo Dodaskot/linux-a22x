@@ -460,7 +460,7 @@
 		 */
 		compatible = "himax,hx83112f", "himax,common", "focaltech,ft8722";
 		reg = <0>;
-		spi-max-frequency = <9600000>;
+		spi-max-frequency = <4000000>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&touch_pins>;
 		interrupts-extended = <&pio_ml 14 IRQ_TYPE_EDGE_FALLING>;
@@ -1972,12 +1972,6 @@
 				};
 			};
 		};
-	};
-};
-
-&spi1 {
-	novatek@0 {
-		panel = <&panel_ml>;
 	};
 };
 

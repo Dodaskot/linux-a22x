@@ -33,8 +33,8 @@
 #define FT8722_SPI_RETRIES	3
 #define FT8722_SPI_RETRY_DELAY_US	150
 #define FT8722_TOUCH_DATA_CMD	0x01
-#define FT8722_RESET_DELAY_MS	1
-#define FT8722_STARTUP_DELAY_MS	8
+#define FT8722_RESET_DELAY_MS	10
+#define FT8722_STARTUP_DELAY_MS	20
 
 #define FT8722_FW_WRITE_CMD	0x00
 #define FT8722_FW_START_CMD	0x55
@@ -42,7 +42,7 @@
 #define FT8722_FW_ROM_ID_H	0x87
 #define FT8722_FW_ROM_ID_L	0x22
 #define FT8722_FW_APP_ID_REG	0xa3
-#define FT8722_FW_APP_ID	0x20
+#define FT8722_FW_APP_ID	0x87
 #define FT8722_FW_SET_ADDR_CMD	0xad
 #define FT8722_FW_WRITE_DATA_CMD	0xae
 #define FT8722_FW_START_APP_CMD	0x08
@@ -56,9 +56,12 @@
 #define FT8722_FW_PACKET_SIZE	(32 * 1024 - 16)
 #define FT8722_FW_ECC_CHUNK_SIZE	32766
 #define FT8722_FW_BOOT_RETRIES	30
-#define FT8722_FW_DOWNLOAD_RETRIES	3
-#define FT8722_FW_READY_RETRIES	5
+#define FT8722_FW_DOWNLOAD_RETRIES	5
+#define FT8722_FW_RETRY_DELAY_MS	100
+#define FT8722_FW_READY_RETRIES	10
 #define FT8722_FW_READY_DELAY_MS	200
+#define FT8722_FW_START_DELAY_MS	50
+#define FT8722_FW_RESET_WAIT_MS	200
 
 static const u8 ft8722_firmware[] = {
 #include "firmware/FT8722_truly.i"
@@ -431,7 +434,7 @@ static int ft8722_download_firmware_once(struct ft8722_ts *ts)
 	ret = ft8722_spi_write(ts, start_app, NULL, 0);
 	if (ret)
 		return ret;
-	msleep(10);
+	msleep(FT8722_FW_START_DELAY_MS);
 
 	ret = ft8722_wait_for_application(ts);
 	if (ret)
@@ -454,6 +457,8 @@ static int ft8722_download_firmware(struct ft8722_ts *ts)
 		dev_warn(&ts->spi->dev,
 			 "firmware download attempt %u failed: %d\n",
 			 attempt + 1, ret);
+		if (attempt + 1 < FT8722_FW_DOWNLOAD_RETRIES)
+			msleep(FT8722_FW_RETRY_DELAY_MS);
 	}
 
 	return ret;
@@ -595,11 +600,23 @@ static int ft8722_probe(struct spi_device *spi)
 		return dev_err_probe(dev, PTR_ERR(ts->reset_gpio),
 				     "failed to get reset GPIO\n");
 
+	gpiod_set_value_cansleep(ts->reset_gpio, 1);
+	msleep(1);
+	gpiod_set_value_cansleep(ts->reset_gpio, 0);
+	msleep(FT8722_FW_RESET_WAIT_MS);
+
 	ret = ft8722_download_firmware(ts);
-	if (ret)
+	if (ret) {
 		dev_err(&spi->dev,
-			"firmware download failed; touch may not work: %d\n",
-			ret);
+			"firmware download failed after %u attempts: %d\n",
+			FT8722_FW_DOWNLOAD_RETRIES, ret);
+		/*
+		 * Do not register an input device while the controller is still
+		 * in its bootloader. Its responses are not touch reports.
+		 */
+		gpiod_set_value_cansleep(ts->reset_gpio, 0);
+		return ret;
+	}
 
 	ts->input = devm_input_allocate_device(dev);
 	if (!ts->input)
