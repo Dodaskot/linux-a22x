@@ -4,13 +4,17 @@
 * Author: Tianping.Fang <tianping.fang@mediatek.com>
 */
 
+#include <linux/delay.h>
 #include <linux/err.h>
+#include <linux/iopoll.h>
 #include <linux/interrupt.h>
+#include <linux/mfd/mt6359/registers.h>
 #include <linux/mfd/mt6397/core.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/reboot.h>
 #include <linux/regmap.h>
 #include <linux/rtc.h>
 #include <linux/mfd/mt6397/rtc.h>
@@ -34,6 +38,125 @@ static int mtk_rtc_write_trigger(struct mt6397_rtc *rtc)
 			"failed to write WRTGR: %d\n", ret);
 
 	return ret;
+}
+
+/* MT6359(P) power-off sequence from the A22x vendor PMIC/RTC driver. */
+#define MT6359_RTC_BBPU_PWREN	BIT(0)
+#define MT6359_RTC_BBPU_CLR	BIT(1)
+#define MT6359_RTC_BBPU_RELOAD	BIT(5)
+#define MT6359_RTC_PDN1		0x2c
+#define MT6359_RTC_GPIO_USERS	GENMASK(12, 8)
+#define MT6359_RTC_CON		0x3c
+#define MT6359_RTC_CON_F32KOB	BIT(5)
+#define MT6359_PWRKEY_RELEASED	BIT(1)
+#define MT6359_PWRHOLD		BIT(0)
+#define MT6359_SDN_DLY_ENB	BIT(8)
+#define MT6359_TMA_KEY		0x9ca7
+
+static int mt6359_rtc_power_off(struct sys_off_data *data)
+{
+	struct mt6397_rtc *rtc = data->cb_data;
+	const char *stage = "power-key release";
+	unsigned int val;
+	int ret, lock_ret;
+
+	/*
+	 * PWRAP's regmap uses a mutex and sleepable polling. Run after device
+	 * shutdown, while interrupts and scheduling are still available.
+	 */
+	dev_info(data->dev, "MT6359 RTC/PMIC power-off sequence\n");
+	mutex_lock(&rtc->lock);
+
+	/* An asserted power key can immediately turn the PMIC on again. */
+	ret = regmap_read_poll_timeout(rtc->regmap, MT6359_TOPSTATUS, val,
+				      val & MT6359_PWRKEY_RELEASED,
+				      10000, 1000000);
+	if (ret)
+		goto out_unlock;
+
+	stage = "32 kHz output";
+	ret = regmap_read(rtc->regmap, rtc->addr_base + MT6359_RTC_PDN1, &val);
+	if (ret)
+		goto out_unlock;
+	if (!(val & MT6359_RTC_GPIO_USERS)) {
+		ret = regmap_update_bits(rtc->regmap,
+					 rtc->addr_base + MT6359_RTC_CON,
+					 MT6359_RTC_CON_F32KOB,
+					 MT6359_RTC_CON_F32KOB);
+		if (ret)
+			goto out_unlock;
+		ret = mtk_rtc_write_trigger(rtc);
+		if (ret)
+			goto out_unlock;
+	}
+
+	stage = "RTC low-power shutdown clear";
+	ret = regmap_write(rtc->regmap, rtc->addr_base + RTC_BBPU,
+			   RTC_BBPU_KEY | MT6359_RTC_BBPU_CLR |
+			   MT6359_RTC_BBPU_PWREN);
+	if (ret)
+		goto out_unlock;
+	ret = regmap_write(rtc->regmap, rtc->addr_base + RTC_AL_MASK,
+			   RTC_AL_MASK_DOW);
+	if (ret)
+		goto out_unlock;
+	ret = mtk_rtc_write_trigger(rtc);
+	if (ret)
+		goto out_unlock;
+	ret = regmap_read_poll_timeout(rtc->regmap,
+				      rtc->addr_base + RTC_BBPU, val,
+				      !(val & MT6359_RTC_BBPU_CLR),
+				      MTK_RTC_POLL_DELAY_US, 500000);
+	if (ret)
+		goto out_unlock;
+
+	stage = "RTC reload";
+	ret = regmap_update_bits(rtc->regmap, rtc->addr_base + RTC_BBPU,
+				 RTC_BBPU_KEY | MT6359_RTC_BBPU_RELOAD,
+				 RTC_BBPU_KEY | MT6359_RTC_BBPU_RELOAD);
+	if (ret)
+		goto out_unlock;
+	ret = mtk_rtc_write_trigger(rtc);
+	if (ret)
+		goto out_unlock;
+
+	stage = "shutdown delay unlock";
+	ret = regmap_write(rtc->regmap, MT6359_TOP_TMA_KEY, MT6359_TMA_KEY);
+	if (!ret) {
+		stage = "shutdown delay";
+		ret = regmap_update_bits(rtc->regmap, MT6359_PSEQ_ELR1,
+					 MT6359_SDN_DLY_ENB, 0);
+	}
+	/* Always relock, even when the unlock or protected update failed. */
+	lock_ret = regmap_write(rtc->regmap, MT6359_TOP_TMA_KEY, 0);
+	if (lock_ret) {
+		dev_err(data->dev, "failed to relock MT6359 TMA key: %d\n",
+			lock_ret);
+		if (!ret) {
+			stage = "shutdown delay relock";
+			ret = lock_ret;
+		}
+	}
+	if (ret)
+		goto out_unlock;
+
+	stage = "PWRHOLD release";
+	dev_info(data->dev, "releasing MT6359 PWRHOLD\n");
+	ret = regmap_update_bits(rtc->regmap, MT6359_PPCCTL0,
+				 MT6359_PWRHOLD, 0);
+
+out_unlock:
+	mutex_unlock(&rtc->lock);
+	if (ret) {
+		dev_err(data->dev, "MT6359 power-off failed at %s: %d; using fallback\n",
+			stage, ret);
+		return NOTIFY_DONE;
+	}
+
+	/* Do not enter PSCI before the PMIC has had time to cut the rails. */
+	msleep(1000);
+	dev_err(data->dev, "MT6359 power-off did not complete; using fallback\n");
+	return NOTIFY_DONE;
 }
 
 static irqreturn_t mtk_rtc_irq_handler_thread(int irq, void *data)
@@ -293,7 +416,27 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 	rtc->rtc_dev->start_secs = mktime64(1968, 1, 2, 0, 0, 0);
 	rtc->rtc_dev->set_start_time = true;
 
-	return devm_rtc_register_device(rtc->rtc_dev);
+	ret = devm_rtc_register_device(rtc->rtc_dev);
+	if (ret)
+		return ret;
+
+	if (of_property_read_bool(pdev->dev.of_node, "system-power-controller")) {
+		if (!rtc->data->supports_poweroff ||
+		    mt6397_chip->chip_id != MT6359_CHIP_ID)
+			return dev_err_probe(&pdev->dev, -EINVAL,
+					     "power-off requires an MT6359 RTC/PMIC\n");
+
+		ret = devm_register_sys_off_handler(&pdev->dev,
+						   SYS_OFF_MODE_POWER_OFF_PREPARE,
+						   SYS_OFF_PRIO_DEFAULT,
+						   mt6359_rtc_power_off, rtc);
+		if (ret)
+			return dev_err_probe(&pdev->dev, ret,
+					     "failed to register MT6359 power-off\n");
+		dev_info(&pdev->dev, "registered MT6359 system power-off handler\n");
+	}
+
+	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -325,6 +468,11 @@ static const struct mtk_rtc_data mt6358_rtc_data = {
 	.wrtgr = RTC_WRTGR_MT6358,
 };
 
+static const struct mtk_rtc_data mt6359_rtc_data = {
+	.wrtgr = RTC_WRTGR_MT6358,
+	.supports_poweroff = true,
+};
+
 static const struct mtk_rtc_data mt6397_rtc_data = {
 	.wrtgr = RTC_WRTGR_MT6397,
 };
@@ -333,6 +481,7 @@ static const struct of_device_id mt6397_rtc_of_match[] = {
 	{ .compatible = "mediatek,mt6323-rtc", .data = &mt6397_rtc_data },
 	{ .compatible = "mediatek,mt6357-rtc", .data = &mt6358_rtc_data },
 	{ .compatible = "mediatek,mt6358-rtc", .data = &mt6358_rtc_data },
+	{ .compatible = "mediatek,mt6359-rtc", .data = &mt6359_rtc_data },
 	{ .compatible = "mediatek,mt6397-rtc", .data = &mt6397_rtc_data },
 	{ }
 };

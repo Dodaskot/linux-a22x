@@ -9,6 +9,9 @@
 /* PMIC Registers */
 #define MT6359_SWCID                         0xa
 #define MT6359_TOPSTATUS                     0x2a
+#define MT6359_TOP_TMA_KEY                   0x3a8
+#define MT6359_PPCCTL0                       0xa08
+#define MT6359_PSEQ_ELR1                     0xa56
 #define MT6359_TOP_RST_MISC                  0x14c
 #define MT6359_MISC_TOP_INT_CON0             0x188
 #define MT6359_MISC_TOP_INT_STATUS0          0x194

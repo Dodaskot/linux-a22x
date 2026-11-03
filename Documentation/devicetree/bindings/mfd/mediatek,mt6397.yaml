@@ -81,6 +81,21 @@ properties:
 
       start-year: true
 
+      system-power-controller:
+        type: boolean
+        description:
+          Use the MT6359 RTC and PMIC to power off the system.
+
+    allOf:
+      - if:
+          properties:
+            compatible:
+              contains:
+                const: mediatek,mt6359-rtc
+        else:
+          properties:
+            system-power-controller: false
+
     required:
       - compatible
 
