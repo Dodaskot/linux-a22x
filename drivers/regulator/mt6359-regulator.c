@@ -15,6 +15,7 @@
 #include <linux/regulator/of_regulator.h>
 
 #include "mt6359-a22x-lp-observe.h"
+#include "mt6359-a22x-lp-init.h"
 
 #define MT6359_BUCK_MODE_AUTO		0
 #define MT6359_BUCK_MODE_FORCE_PWM	1
@@ -1053,6 +1054,11 @@ static int mt6359_regulator_probe(struct platform_device *pdev)
 
 	lp_attempt = a22x_lp_observe_begin(mt6397, hw_ver);
 	a22x_lp_observe(&pdev->dev, mt6397->regmap, lp_attempt, "pre", hw_ver);
+	ret = a22x_lp_init(&pdev->dev, mt6397, hw_ver);
+	if (ret) {
+		a22x_lp_observe(&pdev->dev, mt6397->regmap, lp_attempt, "post", hw_ver);
+		return ret;
+	}
 
 	if (hw_ver >= MT6359P_CHIP_VER) {
 		mt6359_info = mt6359p_regulators;
