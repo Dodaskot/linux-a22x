@@ -928,9 +928,19 @@ static int wt_fac_proc_init(void)
 	return 0;
 
 fail:
-	remove_proc_entry(WT_FAC_PROC_TOUCH_FOLDER, NULL);
+	proc_remove(wt_fac_touch_proc_dir);
+	wt_fac_touch_proc_dir = NULL;
+	wt_fac_proc_self_test_file = NULL;
 
 	return -ENOMEM;
+}
+
+static void wt_fac_proc_deinit(void)
+{
+	/* proc_remove() removes the subtree and drains active proc callbacks. */
+	proc_remove(wt_fac_touch_proc_dir);
+	wt_fac_touch_proc_dir = NULL;
+	wt_fac_proc_self_test_file = NULL;
 }
 
 void himax_parse_assign_cmd(uint32_t addr, uint8_t *cmd, int len)
@@ -3316,6 +3326,7 @@ err_input_register_device_failed:
 	himax_debug_remove();
 err_debug_init_failed:
 #endif
+	wt_fac_proc_deinit();
 	himax_common_proc_deinit();
 err_creat_proc_file_failed:
 #if defined(HX_SMART_WAKEUP)
@@ -3360,17 +3371,33 @@ void himax_chip_common_deinit(void)
 {
 	struct himax_ts_data *ts = private_ts;
 
+	/* Keep all report buffers, input devices and command tables alive until
+	 * every IRQ, work item and proc callback that can use them has stopped.
+	 */
+	WRITE_ONCE(ts->removing, true);
+	himax_int_enable(0);
+	if (ts->use_irq)
+		synchronize_irq(ts->hx_irq);
+
+	wt_fac_proc_deinit();
+	himax_common_proc_deinit();
+#if defined(CONFIG_TOUCHSCREEN_HIMAX_DEBUG)
+	himax_debug_remove();
+#endif
+
+#if defined(HX_CONTAINER_SPEED_UP)
+	cancel_delayed_work_sync(&ts->ts_int_work);
+	destroy_workqueue(ts->ts_int_workqueue);
+#endif
+#if defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)
+	cancel_delayed_work_sync(&ts->work_boot_upgrade);
+	destroy_workqueue(ts->himax_boot_upgrade_wq);
+#endif
 	himax_ts_unregister_interrupt();
 
 #if defined(CONFIG_TOUCHSCREEN_HIMAX_INSPECT)
 	himax_inspect_data_clear();
 #endif
-
-#if defined(CONFIG_TOUCHSCREEN_HIMAX_DEBUG)
-	himax_debug_remove();
-#endif
-
-	himax_common_proc_deinit();
 	himax_report_data_deinit();
 
 #if defined(HX_SMART_WAKEUP)
@@ -3414,16 +3441,12 @@ else
 	cancel_delayed_work_sync(&ts->work_att);
 	destroy_workqueue(ts->himax_att_wq);
 #endif
-	input_free_device(ts->input_dev);
-#if defined(HX_CONTAINER_SPEED_UP)
-	cancel_delayed_work_sync(&ts->ts_int_work);
-	destroy_workqueue(ts->ts_int_workqueue);
-#endif
-
-#if defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)
-	cancel_delayed_work_sync(&ts->work_boot_upgrade);
-	destroy_workqueue(ts->himax_boot_upgrade_wq);
-#endif
+	input_unregister_device(ts->input_dev);
+	ts->input_dev = NULL;
+	if (ic_data->HX_STYLUS_FUNC) {
+		input_unregister_device(ts->stylus_dev);
+		ts->stylus_dev = NULL;
+	}
 	himax_gpio_power_deconfig(ts->pdata);
 	if (himax_mcu_cmd_struct_free)
 		himax_mcu_cmd_struct_free();
@@ -3528,6 +3551,9 @@ int himax_chip_common_resume(struct himax_ts_data *ts)
 #if defined(HX_RESUME_SET_FW)
 	int result = 0;
 #endif
+
+	if (READ_ONCE(ts->removing))
+		return -ENODEV;
 
 	if (ts->suspended == false) {
 		I("%s: Already resumed, skip...\n", __func__);
