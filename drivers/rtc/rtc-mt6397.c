@@ -58,7 +58,7 @@ static int mt6359_rtc_power_off(struct sys_off_data *data)
 	struct mt6397_rtc *rtc = data->cb_data;
 	const char *stage = "power-key release";
 	unsigned int val;
-	int ret, lock_ret;
+	int ret, lock_ret, poll_ret;
 
 	/*
 	 * PWRAP's regmap uses a mutex and sleepable polling. Run after device
@@ -103,12 +103,21 @@ static int mt6359_rtc_power_off(struct sys_off_data *data)
 	ret = mtk_rtc_write_trigger(rtc);
 	if (ret)
 		goto out_unlock;
-	ret = regmap_read_poll_timeout(rtc->regmap,
-				      rtc->addr_base + RTC_BBPU, val,
-				      !(val & MT6359_RTC_BBPU_CLR),
-				      MTK_RTC_POLL_DELAY_US, 500000);
+	/*
+	 * The vendor sequence continues if CLR remains set after 500 ms.
+	 * Keep the read error separate: PWRAP can also return -ETIMEDOUT.
+	 */
+	poll_ret = read_poll_timeout(regmap_read, ret,
+				     ret || !(val & MT6359_RTC_BBPU_CLR),
+				     MTK_RTC_POLL_DELAY_US, 500000, false,
+				     rtc->regmap, rtc->addr_base + RTC_BBPU,
+				     &val);
 	if (ret)
 		goto out_unlock;
+	if (poll_ret)
+		dev_warn(data->dev,
+			 "RTC_BBPU_CLR timeout (BBPU=%#x); continuing power-off\n",
+			 val);
 
 	stage = "RTC reload";
 	ret = regmap_update_bits(rtc->regmap, rtc->addr_base + RTC_BBPU,
