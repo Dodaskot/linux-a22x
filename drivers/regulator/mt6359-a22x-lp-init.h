@@ -29,6 +29,8 @@ static bool a22x_lp_init_provider(struct device *dev, struct mt6397_chip *chip,
 				 int hw_ver)
 {
 	struct device *wrapper;
+	struct device_node *pmic_node, *wrapper_node;
+	bool matched;
 
 	if (!of_machine_is_compatible("samsung,a22x") ||
 	    !of_machine_is_compatible("mediatek,mt6833") || hw_ver != 0x5930 ||
@@ -39,15 +41,22 @@ static bool a22x_lp_init_provider(struct device *dev, struct mt6397_chip *chip,
 	if (!wrapper || !wrapper->of_node ||
 	    !of_device_is_available(chip->dev->of_node) ||
 	    !of_device_is_available(wrapper->of_node) ||
-	    strcmp(of_node_full_name(chip->dev->of_node),
-		   "/pmic-wrapper@10026000/pmic") ||
-	    strcmp(of_node_full_name(wrapper->of_node), "/pmic-wrapper@10026000") ||
 	    !of_device_is_compatible(chip->dev->of_node, "mediatek,mt6359") ||
 	    !of_device_is_compatible(wrapper->of_node, "mediatek,mt6833-pwrap"))
 		return false;
-	return dev_get_regmap(wrapper, NULL) == chip->regmap &&
-	       regmap_get_device(chip->regmap) == wrapper &&
-	       regmap_get_val_bytes(chip->regmap) == 2;
+	/* full_name is an FDT unit name, not an absolute OF path. */
+	pmic_node = of_find_node_by_path("/pmic-wrapper@10026000/pmic");
+	wrapper_node = of_find_node_by_path("/pmic-wrapper@10026000");
+	matched = pmic_node && wrapper_node &&
+		  chip->dev->of_node == pmic_node &&
+		  wrapper->of_node == wrapper_node &&
+		  pmic_node->parent == wrapper_node &&
+		  dev_get_regmap(wrapper, NULL) == chip->regmap &&
+		  regmap_get_device(chip->regmap) == wrapper &&
+		  regmap_get_val_bytes(chip->regmap) == 2;
+	of_node_put(pmic_node);
+	of_node_put(wrapper_node);
+	return matched;
 }
 
 static int a22x_lp_init(struct device *dev, struct mt6397_chip *chip, int hw_ver)
