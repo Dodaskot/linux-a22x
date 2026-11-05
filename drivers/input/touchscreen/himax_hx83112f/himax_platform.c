@@ -147,6 +147,11 @@ void himax_int_enable(int enable)
 	unsigned long irqflags;
 
 	spin_lock_irqsave(&ts->irq_lock, irqflags);
+	/* A firmware/self-test worker must not re-enable an IRQ during removal. */
+	if (enable == 1 && READ_ONCE(ts->removing)) {
+		spin_unlock_irqrestore(&ts->irq_lock, irqflags);
+		return;
+	}
 	if (enable == 1 && atomic_read(&ts->irq_state) == 0) {
 		atomic_set(&ts->irq_state, 1);
 		enable_irq(ts->hx_irq);

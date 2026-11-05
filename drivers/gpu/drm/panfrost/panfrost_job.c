@@ -23,7 +23,7 @@
 #include "panfrost_dump.h"
 
 #define MAX_JM_CTX_PER_FILE 64
-#define JOB_TIMEOUT_MS 500
+#define JOB_TIMEOUT_MS 2000
 
 #define job_write(dev, reg, data) writel(data, dev->iomem + (reg))
 #define job_read(dev, reg) readl(dev->iomem + (reg))

@@ -450,6 +450,7 @@ struct himax_ts_data {
 	struct sec_cmd_data sec;
 #endif
 	bool initialized;
+	bool removing;
 	bool suspended;
 	int notouch_frame;
 	int ic_notouch_frame;

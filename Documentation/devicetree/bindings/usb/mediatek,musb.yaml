@@ -19,6 +19,7 @@ properties:
       - enum:
           - mediatek,mt8516-musb
           - mediatek,mt2701-musb
+          - mediatek,mt6833-musb
           - mediatek,mt7623-musb
       - const: mediatek,mtk-musb
 
@@ -67,9 +68,21 @@ properties:
     description: Connector for dual role switch
     type: object
 
+  port:
+    $ref: /schemas/graph.yaml#/properties/port
+    description: USB data connection to an external Type-C controller.
+
 dependencies:
-  usb-role-switch: [ connector ]
   connector: [ usb-role-switch ]
+  port: [ usb-role-switch ]
+
+allOf:
+  - if:
+      required: [ usb-role-switch ]
+    then:
+      anyOf:
+        - required: [ connector ]
+        - required: [ port ]
 
 required:
   - compatible

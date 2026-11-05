@@ -73,18 +73,23 @@ static int mtk_otg_switch_set(struct mtk_glue *glue, enum usb_role role)
 	struct musb *musb = glue->musb;
 	u8 devctl = readb(musb->mregs + MUSB_DEVCTL);
 	enum usb_role new_role;
+	int ret;
 
 	if (role == glue->role)
 		return 0;
+
+	if (glue->role == USB_ROLE_NONE &&
+	    (role == USB_ROLE_HOST || role == USB_ROLE_DEVICE)) {
+		ret = phy_power_on(glue->phy);
+		if (ret)
+			return ret;
+	}
 
 	switch (role) {
 	case USB_ROLE_HOST:
 		musb->xceiv->otg->state = OTG_STATE_A_WAIT_VRISE;
 		glue->phy_mode = PHY_MODE_USB_HOST;
 		new_role = USB_ROLE_HOST;
-		if (glue->role == USB_ROLE_NONE)
-			phy_power_on(glue->phy);
-
 		devctl |= MUSB_DEVCTL_SESSION;
 		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
 		MUSB_HST_MODE(musb);
@@ -95,9 +100,6 @@ static int mtk_otg_switch_set(struct mtk_glue *glue, enum usb_role role)
 		new_role = USB_ROLE_DEVICE;
 		devctl &= ~MUSB_DEVCTL_SESSION;
 		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
-		if (glue->role == USB_ROLE_NONE)
-			phy_power_on(glue->phy);
-
 		MUSB_DEV_MODE(musb);
 		break;
 	case USB_ROLE_NONE:
@@ -283,9 +285,12 @@ static int mtk_musb_init(struct musb *musb)
 	if (ret)
 		goto err_phy_init;
 
-	ret = phy_power_on(glue->phy);
-	if (ret)
-		goto err_phy_power_on;
+	/* An unattached dual-role port gets its first power reference on attach. */
+	if (glue->role != USB_ROLE_NONE) {
+		ret = phy_power_on(glue->phy);
+		if (ret)
+			goto err_phy_power_on;
+	}
 
 	phy_set_mode(glue->phy, glue->phy_mode);
 
@@ -342,7 +347,8 @@ static int mtk_musb_exit(struct musb *musb)
 	struct mtk_glue *glue = dev_get_drvdata(dev->parent);
 
 	mtk_otg_switch_exit(glue);
-	phy_power_off(glue->phy);
+	if (glue->role != USB_ROLE_NONE)
+		phy_power_off(glue->phy);
 	phy_exit(glue->phy);
 	clk_bulk_disable_unprepare(MTK_MUSB_CLKS_NUM, glue->clks);
 

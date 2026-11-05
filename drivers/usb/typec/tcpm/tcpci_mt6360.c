@@ -11,6 +11,7 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
+#include <linux/regulator/consumer.h>
 #include <linux/usb/tcpci.h>
 #include <linux/usb/tcpm.h>
 
@@ -36,12 +37,46 @@
 /* MT6360_REG_CTDCTRL2 */
 #define MT6360_RPONESHOT_ENABLE	BIT(6)
 
+#define MT6360_ALERT_MASK	(TCPC_ALERT_TX_SUCCESS | TCPC_ALERT_TX_FAILED | \
+				 TCPC_ALERT_TX_DISCARDED | TCPC_ALERT_RX_STATUS | \
+				 TCPC_ALERT_RX_HARD_RST | TCPC_ALERT_CC_STATUS | \
+				 TCPC_ALERT_POWER_STATUS)
+
 struct mt6360_tcpc_info {
 	struct tcpci_data tdata;
 	struct tcpci *tcpci;
 	struct device *dev;
 	int irq;
+	struct regulator *vbus;
+	bool sourcing_vbus;
+	bool irq_ready;
 };
+
+static int mt6360_tcpc_set_vbus(struct tcpci *tcpci, struct tcpci_data *tdata,
+			      bool source, bool sink)
+{
+	struct mt6360_tcpc_info *mti = container_of(tdata, struct mt6360_tcpc_info,
+						 tdata);
+	int ret;
+
+	if (source == mti->sourcing_vbus)
+		return 0;
+
+	ret = source ? regulator_enable(mti->vbus) : regulator_disable(mti->vbus);
+	if (!ret)
+		mti->sourcing_vbus = source;
+
+	/* Let TCPCI also update its source/sink path commands. */
+	return ret;
+}
+
+static void mt6360_tcpc_disable_vbus(void *data)
+{
+	struct mt6360_tcpc_info *mti = data;
+
+	if (mti->sourcing_vbus)
+		regulator_disable(mti->vbus);
+}
 
 static inline int mt6360_tcpc_write16(struct regmap *regmap,
 				      unsigned int reg, u16 val)
@@ -51,6 +86,8 @@ static inline int mt6360_tcpc_write16(struct regmap *regmap,
 
 static int mt6360_tcpc_init(struct tcpci *tcpci, struct tcpci_data *tdata)
 {
+	struct mt6360_tcpc_info *mti = container_of(tdata, struct mt6360_tcpc_info,
+						 tdata);
 	struct regmap *regmap = tdata->regmap;
 	int ret;
 
@@ -126,7 +163,15 @@ static int mt6360_tcpc_init(struct tcpci *tcpci, struct tcpci_data *tdata)
 		return ret;
 
 	/* Set shipping mode off, AUTOIDLE on */
-	return regmap_write(regmap, MT6360_REG_MODECTRL2, 0x7A);
+	ret = regmap_write(regmap, MT6360_REG_MODECTRL2, 0x7A);
+	if (ret)
+		return ret;
+
+	/* A later TCPM reset must restore interrupts after the software reset. */
+	if (mti->irq_ready)
+		return mt6360_tcpc_write16(regmap, TCPC_ALERT_MASK, MT6360_ALERT_MASK);
+
+	return 0;
 }
 
 static irqreturn_t mt6360_irq(int irq, void *dev_id)
@@ -157,6 +202,19 @@ static int mt6360_tcpc_probe(struct platform_device *pdev)
 	if (mti->irq < 0)
 		return mti->irq;
 
+	mti->vbus = devm_regulator_get_optional(mti->dev, "vbus");
+	if (IS_ERR(mti->vbus)) {
+		if (PTR_ERR(mti->vbus) != -ENODEV)
+			return dev_err_probe(mti->dev, PTR_ERR(mti->vbus),
+					     "Failed to get VBUS regulator\n");
+		mti->vbus = NULL;
+	} else {
+		ret = devm_add_action_or_reset(mti->dev, mt6360_tcpc_disable_vbus, mti);
+		if (ret)
+			return ret;
+		mti->tdata.set_vbus = mt6360_tcpc_set_vbus;
+	}
+
 	mti->tdata.init = mt6360_tcpc_init;
 	mti->tcpci = tcpci_register_port(&pdev->dev, &mti->tdata);
 	if (IS_ERR(mti->tcpci)) {
@@ -170,6 +228,15 @@ static int mt6360_tcpc_probe(struct platform_device *pdev)
 		dev_err(mti->dev, "Failed to register irq\n");
 		tcpci_unregister_port(mti->tcpci);
 		return ret;
+	}
+
+	/* Generic TCPCI leaves enabling alerts to the interrupt-owning driver. */
+	mti->irq_ready = true;
+	ret = mt6360_tcpc_write16(mti->tdata.regmap, TCPC_ALERT_MASK, MT6360_ALERT_MASK);
+	if (ret) {
+		disable_irq(mti->irq);
+		tcpci_unregister_port(mti->tcpci);
+		return dev_err_probe(mti->dev, ret, "Failed to enable alerts\n");
 	}
 
 	device_init_wakeup(&pdev->dev, true);

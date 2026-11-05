@@ -9,6 +9,16 @@ menuconfig POWER_RESET
 
 if POWER_RESET
 
+config POWER_RESET_A22X_REBOOT
+	bool "Samsung Galaxy A22 5G bootloader restart markers"
+	depends on ARCH_MEDIATEK && ARM64
+	depends on OF && HAS_IOMEM
+	help
+	  Write Samsung's SRAM restart reason before the platform resets an
+	  A22x. This keeps an ordinary restart with a charger connected in
+	  normal boot mode and supports explicit recovery/download requests.
+	  This driver does not reset or power off the system itself.
+
 config POWER_RESET_AS3722
 	bool "ams AS3722 power-off driver"
 	depends on MFD_AS3722

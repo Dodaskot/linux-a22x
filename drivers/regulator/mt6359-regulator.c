@@ -14,6 +14,9 @@
 #include <linux/regulator/mt6359-regulator.h>
 #include <linux/regulator/of_regulator.h>
 
+#include "mt6359-a22x-lp-observe.h"
+#include "mt6359-a22x-lp-init.h"
+
 #define MT6359_BUCK_MODE_AUTO		0
 #define MT6359_BUCK_MODE_FORCE_PWM	1
 #define MT6359_BUCK_MODE_NORMAL		0
@@ -1042,11 +1045,20 @@ static int mt6359_regulator_probe(struct platform_device *pdev)
 	struct regulator_dev *rdev;
 	const struct mt6359_regulator_info *mt6359_info;
 	const char *vio18_name, *vcn33_1_name, *vcn33_2_name;
+	unsigned int lp_attempt;
 	int i, hw_ver, ret;
 
 	ret = regmap_read(mt6397->regmap, MT6359P_HWCID, &hw_ver);
 	if (ret)
 		return ret;
+
+	lp_attempt = a22x_lp_observe_begin(mt6397, hw_ver);
+	a22x_lp_observe(&pdev->dev, mt6397->regmap, lp_attempt, "pre", hw_ver);
+	ret = a22x_lp_init(&pdev->dev, mt6397, hw_ver);
+	if (ret) {
+		a22x_lp_observe(&pdev->dev, mt6397->regmap, lp_attempt, "post", hw_ver);
+		return ret;
+	}
 
 	if (hw_ver >= MT6359P_CHIP_VER) {
 		mt6359_info = mt6359p_regulators;
@@ -1127,6 +1139,7 @@ static int mt6359_regulator_probe(struct platform_device *pdev)
 			vcn33_2_name = rdev_get_name(rdev);
 	}
 
+	a22x_lp_observe(&pdev->dev, mt6397->regmap, lp_attempt, "post", hw_ver);
 	return 0;
 }
 

@@ -154,6 +154,19 @@ int machine_kexec_post_load(struct kimage *kimage)
 	return 0;
 }
 
+/*
+ * The copied assembly entry has no kCFI type hash. Its physical address is
+ * mapped only for the relocation code, so checking entry - 4 also faults.
+ * Keep the exemption limited to this call; cpu_soft_restart stays checked.
+ */
+static void __nocfi noinline kexec_relocate(struct kimage *kimage)
+{
+	void (*kernel_reloc)(struct kimage *kimage);
+
+	kernel_reloc = (void *)kimage->arch.kern_reloc;
+	kernel_reloc(kimage);
+}
+
 /**
  * machine_kexec - Do the kexec reboot.
  *
@@ -192,13 +205,10 @@ void machine_kexec(struct kimage *kimage)
 		restart(is_hyp_nvhe(), kimage->start, kimage->arch.dtb_mem,
 			0, 0);
 	} else {
-		void (*kernel_reloc)(struct kimage *kimage);
-
 		if (is_hyp_nvhe())
 			__hyp_set_vectors(kimage->arch.el2_vectors);
 		cpu_install_ttbr0(kimage->arch.ttbr0, kimage->arch.t0sz);
-		kernel_reloc = (void *)kimage->arch.kern_reloc;
-		kernel_reloc(kimage);
+		kexec_relocate(kimage);
 	}
 
 	BUG(); /* Should never get here. */
