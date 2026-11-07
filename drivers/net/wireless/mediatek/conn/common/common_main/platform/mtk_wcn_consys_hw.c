@@ -162,6 +162,7 @@ static struct platform_driver mtk_wmt_dev_drv = {
 		   .pm = &wmt_drv_pm_ops,
 		   },
 };
+static bool g_consys_hw_registered;
 
 /* GPIO part */
 struct pinctrl *consys_pinctrl;
@@ -997,10 +998,14 @@ INT32 mtk_wcn_consys_hw_init(VOID)
 {
 	INT32 iRet = -1, retry = 0;
 
+	if (g_consys_hw_registered)
+		return 0;
+
 	iRet = platform_driver_register(&mtk_wmt_dev_drv);
 	if (iRet)
 		WMT_PLAT_PR_ERR("WMT platform driver registered failed(%d)\n", iRet);
 	else {
+		g_consys_hw_registered = true;
 		while (atomic_read(&g_probe_called) == 0 && retry < 100) {
 			osal_sleep_ms(50);
 			retry++;
@@ -1031,6 +1036,7 @@ INT32 mtk_wcn_consys_hw_deinit(VOID)
 #endif
 
 	platform_driver_unregister(&mtk_wmt_dev_drv);
+	g_consys_hw_registered = false;
 
 	if (wmt_consys_ic_ops)
 		wmt_consys_ic_ops = NULL;

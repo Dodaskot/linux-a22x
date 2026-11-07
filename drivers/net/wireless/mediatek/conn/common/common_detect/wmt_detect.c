@@ -43,6 +43,42 @@ static struct cdev gWmtDetectCdev;
 int gWmtDetectDbgLvl = WMT_DETECT_LOG_INFO;
 static ENUM_WMT_CHIP_TYPE g_chip_type = WMT_CHIP_TYPE_INVALID;
 
+int wmt_detect_set_chip_type(int chip_id);
+
+static void wmt_detect_auto_init(void)
+{
+	int chip_id;
+	int ret;
+
+	ret = wmt_plat_consys_hw_init();
+	if (ret) {
+		WMT_DETECT_PR_ERR("automatic CONSYS hardware init failed: %d\n", ret);
+		return;
+	}
+
+	chip_id = wmt_plat_get_soc_chipid();
+	if (chip_id <= 0) {
+		WMT_DETECT_PR_ERR("automatic SoC chip detection failed: 0x%x\n", chip_id);
+		return;
+	}
+
+	mtk_wcn_wmt_set_chipid(chip_id);
+	wmt_detect_set_chip_type(chip_id);
+	WMT_DETECT_PR_INFO("automatic SoC chip detection: 0x%x\n", chip_id);
+
+	ret = mtk_wcn_common_drv_init();
+	if (ret) {
+		WMT_DETECT_PR_ERR("automatic WMT driver init failed: %d\n", ret);
+		return;
+	}
+
+	ret = mtk_wcn_wmt_set_hif(0x23);
+	if (ret)
+		WMT_DETECT_PR_ERR("automatic STP/HIF setup failed: %d\n", ret);
+	else
+		WMT_DETECT_PR_INFO("automatic WMT initialization complete\n");
+}
+
 static int wmt_detect_open(struct inode *inode, struct file *file)
 {
 	WMT_DETECT_PR_INFO("open major %d minor %d (pid %d)\n", imajor(inode), iminor(inode), current->pid);
@@ -342,6 +378,7 @@ static int wmt_detect_driver_init(void)
 	}
 
 	WMT_DETECT_PR_INFO("driver(major %d) installed success\n", gWmtDetectMajor);
+	wmt_detect_auto_init();
 
 	return 0;
 

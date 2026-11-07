@@ -109,6 +109,8 @@ static INT32 wmt_ctrl_get_rom_patch_info(P_WMT_CTRL_DATA pWmtCtrlData);
 
 static INT32 wmt_ctrl_update_patch_version(P_WMT_CTRL_DATA);
 
+static INT32 wmt_ctrl_load_rom_patch_info(VOID);
+
 /* TODO: [FixMe][GeorgeKuo]: remove unused function */
 /*static INT32  wmt_ctrl_hwver_get(P_WMT_CTRL_DATA);*/
 
@@ -652,7 +654,6 @@ INT32 wmt_ctrl_get_rom_patch_info(P_WMT_CTRL_DATA pWmtCtrlData)
 	PUINT8 pNbuf = NULL;
 	PUINT8 pAbuf = NULL;
 	INT32 ret = 0;
-	UINT8 cmdStr[NAME_MAX + 1] = { 0 };
 
 	type = (UINT32)pWmtCtrlData->au4CtrlData[0];
 	WMT_DBG_FUNC("rom patch type is %d\n", type);
@@ -660,34 +661,89 @@ INT32 wmt_ctrl_get_rom_patch_info(P_WMT_CTRL_DATA pWmtCtrlData)
 	pDev->fw_ver = (UINT32)pWmtCtrlData->au4CtrlData[4];
 	WMT_DBG_FUNC("ip version is [%x] [%x]\n", pDev->ip_ver, pDev->fw_ver);
 
-	if (!pDev->pWmtRomPatchInfo[WMTDRV_TYPE_WMT]) {
-		osal_snprintf(cmdStr, NAME_MAX, "srh_rom_patch");
-		ret = wmt_ctrl_ul_cmd(pDev, cmdStr);
-		if (ret) {
-			WMT_WARN_FUNC("wmt_ctrl_ul_cmd fail(%d)\n", ret);
-			return -1;
-		}
+	if (type >= WMTDRV_TYPE_ANT) {
+		WMT_ERR_FUNC("rom patch type %d is error!\n", type);
+		return -1;
 	}
 
-	if (type < WMTDRV_TYPE_ANT) {
-		pPatchinfo = pDev->pWmtRomPatchInfo[type];
-		pNbuf = (PUINT8) pWmtCtrlData->au4CtrlData[1];
-		pAbuf = (PUINT8) pWmtCtrlData->au4CtrlData[2];
-		if (pPatchinfo) {
-			osal_memcpy(pNbuf, pPatchinfo->patchName, osal_sizeof(pPatchinfo->patchName));
-			osal_memcpy(pAbuf, pPatchinfo->addRess, osal_sizeof(pPatchinfo->addRess));
-			WMT_DBG_FUNC("get 4 address bytes is 0x%2x,0x%2x,0x%2x,0x%2x",
-					pAbuf[0], pAbuf[1], pAbuf[2], pAbuf[3]);
-		} else {
-			WMT_ERR_FUNC("NULL patchinfo pointer\n");
-			ret = 1;
-		}
+	if (!pDev->pWmtRomPatchInfo[type]) {
+		ret = wmt_ctrl_load_rom_patch_info();
+		if (ret)
+			return ret;
+	}
+
+	pPatchinfo = pDev->pWmtRomPatchInfo[type];
+	pNbuf = (PUINT8) pWmtCtrlData->au4CtrlData[1];
+	pAbuf = (PUINT8) pWmtCtrlData->au4CtrlData[2];
+	if (pPatchinfo) {
+		osal_memcpy(pNbuf, pPatchinfo->patchName, osal_sizeof(pPatchinfo->patchName));
+		osal_memcpy(pAbuf, pPatchinfo->addRess, osal_sizeof(pPatchinfo->addRess));
+		WMT_DBG_FUNC("get 4 address bytes is 0x%2x,0x%2x,0x%2x,0x%2x",
+				pAbuf[0], pAbuf[1], pAbuf[2], pAbuf[3]);
 	} else {
-		WMT_ERR_FUNC("rom patch type %d is error!\n", type);
-		ret = -1;
+		WMT_ERR_FUNC("NULL patchinfo pointer\n");
+		ret = 1;
 	}
 
 	return ret;
+}
+
+static INT32 wmt_ctrl_load_rom_patch_info(VOID)
+{
+	static const char * const patch_names[] = {
+		"soc2_2_ram_mcu_1_1_hdr.bin",
+		"soc2_2_ram_bt_1_1_hdr.bin",
+		"soc2_2_ram_wifi_1_1_hdr.bin",
+		"soc2_1x1_ram_mcu_1_1_hdr.bin",
+		"soc2_1x1_ram_bt_1_1_hdr.bin",
+		"soc2_1x1_ram_wifi_1_1_hdr.bin",
+	};
+	struct wmt_rom_patch_info patch_info;
+	osal_firmware *fw = NULL;
+	UINT32 i;
+	UINT32 type;
+	const UINT8 *data;
+	INT32 found = 0;
+
+	for (i = 0; i < ARRAY_SIZE(patch_names); i++) {
+		if (wmt_dev_patch_get((PUINT8)patch_names[i], &fw))
+			continue;
+
+		if (fw->size < sizeof(struct wmt_rom_patch)) {
+			WMT_WARN_FUNC("ROM patch %s is too small (%zu)\n",
+				      patch_names[i], fw->size);
+			wmt_dev_patch_put(&fw);
+			continue;
+		}
+
+		data = fw->data;
+		osal_memset(&patch_info, 0, sizeof(patch_info));
+		patch_info.type = data[0x1f];
+		patch_info.addRess[0] = 0;
+		patch_info.addRess[1] = data[0x19];
+		patch_info.addRess[2] = data[0x1a];
+		patch_info.addRess[3] = data[0x1b];
+		osal_strncpy(patch_info.patchName, patch_names[i],
+			     sizeof(patch_info.patchName) - 1);
+		type = patch_info.type;
+
+		if (type >= WMTDRV_TYPE_ANT) {
+			WMT_WARN_FUNC("ROM patch %s has invalid type %u\n",
+				      patch_names[i], type);
+			wmt_dev_patch_put(&fw);
+			continue;
+		}
+
+		wmt_lib_set_rom_patch_info(&patch_info, type);
+		WMT_INFO_FUNC("loaded ROM patch metadata %s type %u address %02x%02x%02x%02x\n",
+			      patch_names[i], type, patch_info.addRess[0],
+			      patch_info.addRess[1], patch_info.addRess[2],
+			      patch_info.addRess[3]);
+		found++;
+		wmt_dev_patch_put(&fw);
+	}
+
+	return found ? 0 : -ENOENT;
 }
 
 INT32 wmt_ctrl_update_patch_version(P_WMT_CTRL_DATA pWmtCtrlData)

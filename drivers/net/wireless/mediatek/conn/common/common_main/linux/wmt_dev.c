@@ -874,52 +874,7 @@ LONG WMT_unlocked_ioctl(struct file *filp, UINT32 cmd, ULONG arg)
 		}
 		break;
 	case WMT_IOCTL_SET_STP_MODE:	/* stp/hif/fm mode */
-		/* set hif conf */
-		do {
-			P_OSAL_OP pOp;
-			MTK_WCN_BOOL bRet;
-			P_OSAL_SIGNAL pSignal = NULL;
-			P_WMT_HIF_CONF pHif = NULL;
-
-			if (hif_info == 1) {
-				WMT_INFO_FUNC("hif_info had been set!\n");
-				break;
-			}
-
-			iRet = wmt_lib_set_hif(arg);
-			if (iRet != 0) {
-				WMT_INFO_FUNC("wmt_lib_set_hif fail (%lu)\n", arg);
-				break;
-			}
-
-			pOp = wmt_lib_get_free_op();
-			if (!pOp) {
-				WMT_INFO_FUNC("get_free_lxop fail\n");
-				break;
-			}
-			pSignal = &pOp->signal;
-			pOp->op.opId = WMT_OPID_HIF_CONF;
-
-			pHif = wmt_lib_get_hif();
-
-			osal_memcpy(&pOp->op.au4OpData[0], pHif, sizeof(WMT_HIF_CONF));
-			pOp->op.u4InfoBit = WMT_OP_HIF_BIT;
-			pSignal->timeoutValue = 0;
-
-			bRet = wmt_lib_put_act_op(pOp);
-			WMT_DBG_FUNC("WMT_OPID_HIF_CONF result(%d)\n", bRet);
-			iRet = (bRet == MTK_WCN_BOOL_FALSE) ? -EFAULT : 0;
-			if (iRet == 0) {
-				WMT_INFO_FUNC("luncher set STP mode success!\n");
-				hif_info = 1;
-
-				if (atomic_read(&g_late_pwr_on_for_blank) &&
-					atomic_read(&g_es_lr_flag_for_blank)) {
-					atomic_set(&g_late_pwr_on_for_blank, 0);
-					schedule_work(&gPwrOnOffWork);
-				}
-			}
-		} while (0);
+		iRet = mtk_wcn_wmt_set_hif(arg);
 		break;
 	case WMT_IOCTL_FUNC_ONOFF_CTRL:	/* test turn on/off func */
 #if WMT_DBG_SUPPORT
@@ -1823,9 +1778,48 @@ INT32 mtk_wcn_common_drv_init(VOID)
 }
 EXPORT_SYMBOL(mtk_wcn_common_drv_init);
 
+INT32 mtk_wcn_wmt_set_hif(ULONG hifconf)
+{
+	P_OSAL_OP pOp;
+	MTK_WCN_BOOL bRet;
+	P_OSAL_SIGNAL pSignal;
+	P_WMT_HIF_CONF pHif;
+	INT32 ret;
+
+	if (hif_info == 1)
+		return 0;
+
+	ret = wmt_lib_set_hif(hifconf);
+	if (ret) {
+		WMT_ERR_FUNC("wmt_lib_set_hif(%lu) failed (%d)\n", hifconf, ret);
+		return ret;
+	}
+
+	pOp = wmt_lib_get_free_op();
+	if (!pOp)
+		return -ENOMEM;
+
+	pSignal = &pOp->signal;
+	pOp->op.opId = WMT_OPID_HIF_CONF;
+	pHif = wmt_lib_get_hif();
+	osal_memcpy(&pOp->op.au4OpData[0], pHif, sizeof(WMT_HIF_CONF));
+	pOp->op.u4InfoBit = WMT_OP_HIF_BIT;
+	pSignal->timeoutValue = 0;
+
+	bRet = wmt_lib_put_act_op(pOp);
+	if (bRet == MTK_WCN_BOOL_FALSE) {
+		WMT_ERR_FUNC("WMT_OPID_HIF_CONF failed\n");
+		return -EIO;
+	}
+
+	hif_info = 1;
+	WMT_INFO_FUNC("kernel set STP/HIF mode 0x%lx\n", hifconf);
+	return 0;
+}
+EXPORT_SYMBOL(mtk_wcn_wmt_set_hif);
+
 VOID mtk_wcn_common_drv_exit(VOID)
 {
 	WMT_exit();
 }
 EXPORT_SYMBOL(mtk_wcn_common_drv_exit);
-

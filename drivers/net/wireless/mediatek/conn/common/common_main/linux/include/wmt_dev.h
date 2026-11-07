@@ -38,6 +38,7 @@ extern LONG wmt_dev_tm_temp_query(VOID);
 
 INT32 mtk_wcn_common_drv_init(VOID);
 VOID mtk_wcn_common_drv_exit(VOID);
+INT32 mtk_wcn_wmt_set_hif(ULONG hifconf);
 
 int mtk_wcn_hif_sdio_drv_init(VOID);
 int mtk_wcn_stp_uart_drv_init(VOID);

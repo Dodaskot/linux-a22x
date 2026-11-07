@@ -93,6 +93,7 @@
 #include "gl_vendor.h"
 #include "gl_hook_api.h"
 #include "mddp.h"
+#include "wmt_exp.h"
 #if CFG_SUPPORT_NAN
 #include "gl_vendor_ndp.h"
 #endif
@@ -6865,6 +6866,9 @@ static int initWlan(void)
 	}
 #endif /* CFG_SUPPORT_SA_LOG */
 	g_u4WlanInitFlag = 1;
+	if (mtk_wcn_wmt_func_on(WMTDRV_TYPE_WIFI) == MTK_WCN_BOOL_FALSE) {
+		DBGLOG(INIT, ERROR, "automatic WMT Wi-Fi power-on failed\n");
+	}
 	DBGLOG(INIT, INFO, "initWlan::End\n");
 
 	return ret;
