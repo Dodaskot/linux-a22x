@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config MTK_COMBO_WIFI
+	tristate "MediaTek MT6833 connectivity Wi-Fi"
+	depends on ARM64
+	depends on WLAN
+	depends on CFG80211
+	select MMC
+	help
+	  Build the MediaTek MT6833 connectivity stack, including the WMT
+	  controller support required by the Wi-Fi driver and the AXI Wi-Fi
+	  driver itself.
+
+	  This is the in-tree form of the A22X vendor connectivity driver.
+	  Selecting M builds the connectivity components as kernel modules.
