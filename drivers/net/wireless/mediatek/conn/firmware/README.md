@@ -11,6 +11,19 @@ no device addresses, NVRAM payloads or per-device factory calibration. Their
 formatting is supplied under GPL-2.0-only; adjacent `.license` files carry the
 SPDX identifiers without adding comment lines the WMT parser would warn about.
 
+## Bluetooth factory address
+
+The Bluetooth HCI module accepts `bdaddr=` as a temporary override, but normally
+looks for `mediatek/mt6833/bt_addr` through the kernel firmware loader. Install
+that file in the board's firmware directory (for example
+`/lib/firmware/postmarketos/mediatek/mt6833/bt_addr`). It may contain either
+the six-byte binary address or a text address such as
+`7C:C2:25:A5:6A:37`, optionally followed by a newline.
+
+The file should be generated from this device's Android NVRAM
+(`APCFG/APRDEB/BT_Addr`); it must not be copied between phones. A supplied
+`bdaddr=` module parameter takes precedence over the firmware file.
+
 ## Host-driver support
 
 All nine keys in `WMT_SOC.cfg` are explicitly registered in `wmtcfg_fields` in

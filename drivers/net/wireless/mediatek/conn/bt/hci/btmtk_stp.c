@@ -8,7 +8,9 @@
  * H4 frames between STP and hci_core.
  */
 #include <linux/module.h>
+#include <linux/firmware.h>
 #include <linux/skbuff.h>
+#include <linux/string.h>
 #include <linux/workqueue.h>
 #include <linux/unaligned.h>
 #include <net/bluetooth/bluetooth.h>
@@ -35,6 +37,10 @@ static struct btmtk_stp *g_bt;
 static char *bdaddr;
 module_param(bdaddr, charp, 0444);
 MODULE_PARM_DESC(bdaddr, "public BD address, e.g. 7C:C2:25:A5:6A:37");
+
+static char *bdaddr_fw = "mediatek/mt6833/bt_addr";
+module_param(bdaddr_fw, charp, 0444);
+MODULE_PARM_DESC(bdaddr_fw, "firmware file containing the factory BD address");
 
 static bool dump;
 module_param(dump, bool, 0644);
@@ -267,13 +273,41 @@ static int btmtk_stp_set_bdaddr(struct hci_dev *hdev, const bdaddr_t *bdaddr)
 
 static int btmtk_stp_setup(struct hci_dev *hdev)
 {
+	const struct firmware *fw = NULL;
 	bdaddr_t ba;
+	const char *address = bdaddr;
+	char address_buf[18];
 	u8 b[6];
 	int i;
+	int err;
 
-	if (!bdaddr || sscanf(bdaddr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+	if (!address && bdaddr_fw) {
+		err = request_firmware(&fw, bdaddr_fw, &hdev->dev);
+		if (!err) {
+			if (fw->size == 6) {
+				for (i = 0; i < 6; i++)
+					ba.b[i] = fw->data[5 - i];
+				release_firmware(fw);
+				return btmtk_stp_set_bdaddr(hdev, &ba);
+			}
+			if (fw->size >= sizeof(address_buf))
+				address_buf[0] = '\0';
+			else {
+				memcpy(address_buf, fw->data, fw->size);
+				address_buf[fw->size] = '\0';
+			}
+			release_firmware(fw);
+			if (address_buf[0])
+				address = strim(address_buf);
+		} else {
+			bt_dev_dbg(hdev, "factory BD address firmware %s unavailable (%d)",
+				   bdaddr_fw, err);
+		}
+	}
+
+	if (!address || sscanf(address, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
 			      &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) != 6) {
-		bt_dev_warn(hdev, "no bdaddr= given, address left unconfigured");
+		bt_dev_warn(hdev, "no factory BD address available, address left unconfigured");
 		hci_set_quirk(hdev, HCI_QUIRK_INVALID_BDADDR);
 		return 0;
 	}
@@ -363,3 +397,4 @@ module_init(btmtk_stp_init);
 module_exit(btmtk_stp_exit);
 MODULE_DESCRIPTION("MediaTek CONSYS Bluetooth over WMT/STP");
 MODULE_LICENSE("GPL");
+MODULE_FIRMWARE("mediatek/mt6833/bt_addr");
