@@ -8304,3 +8304,6 @@ CONFIG_MEMTEST=y
 
 CONFIG_IO_URING_ZCRX=y
 CONFIG_IO_URING_BPF=y
+
+# device specific config
+

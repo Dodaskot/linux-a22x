@@ -1,3 +1,13 @@
+CONFIG_MTK_COMBO_WIFI_HIF := axi
+CONFIG_MTK_PLATFORM := mt6833
+MTK_COMBO_CHIP := SOC2_1X1
+WLAN_CHIP_ID := 6833
+MTK_WLAN_SERVICE := yes
+MTK_ANDROID_EMI := y
+ccflags-y += -DWMT_IDC_SUPPORT=0
+ccflags-y += -DLIST_SEG_MAX=100
+ccflags-y += -DCFG_MTK_ANDROID_EMI=1
+
 ifeq ($(CONFIG_MTK_PLATFORM),)
 	CONFIG_MTK_PLATFORM := mt$(WLAN_CHIP_ID)
 endif
@@ -1082,4 +1092,3 @@ endif
 ifneq ($(findstring f42,$(TARGET_PRODUCT)),)
     ccflags-y += -DCONFIG_BOARD_HAS_W1_OPTION_H
 endif
-

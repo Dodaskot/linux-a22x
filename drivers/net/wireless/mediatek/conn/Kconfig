@@ -7,9 +7,9 @@ config MTK_COMBO_WIFI
 	depends on CFG80211
 	select MMC
 	help
-	  Build the MediaTek MT6833 connectivity stack, including the WMT
-	  controller support required by the Wi-Fi driver and the AXI Wi-Fi
-	  driver itself.
+		Build the MediaTek MT6833 connectivity stack, including the WMT
+		controller support required by the Wi-Fi driver and the AXI Wi-Fi
+		driver itself.
 
-	  This is the in-tree form of the A22X vendor connectivity driver.
-	  Selecting M builds the connectivity components as kernel modules.
+		This is the in-tree form of the A22X vendor connectivity driver.
+		Selecting M builds the connectivity components as kernel modules.
