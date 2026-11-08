@@ -17,6 +17,7 @@
 #include <linux/backlight.h>
 #include <linux/delay.h>
 #include <linux/fb.h>
+#include <linux/init.h>
 
 #include <linux/gpio/consumer.h>
 
@@ -24,6 +25,7 @@
 
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/string.h>
 
 
 struct truly {
@@ -39,6 +41,12 @@ struct truly {
 
 	int error;
 };
+
+static bool truly_panel_selected(void)
+{
+	return saved_command_line &&
+	       strstr(saved_command_line, "ft8722_fhdp_wt_dsi_vdo_cphy_90hz_truly");
+}
 
 #define truly_dcs_write_seq(ctx, seq...)                                         \
 	({                                                                     \
@@ -705,6 +713,9 @@ static int truly_probe(struct mipi_dsi_device *dsi)
 	struct device_node *backlight;
 	int ret;
 
+	if (!truly_panel_selected())
+		return -ENODEV;
+
 	pr_info("%s+\n", __func__);
 	ctx = devm_drm_panel_alloc(dev, struct truly, panel,
 				   &truly_drm_funcs, DRM_MODE_CONNECTOR_DSI);
@@ -776,6 +787,9 @@ static void truly_remove(struct mipi_dsi_device *dsi)
 static const struct of_device_id truly_of_match[] = {
 	{
 	    .compatible = "wt,ft8722-fhdp-wt-dsi-vdo-cphy-90hz-truly",
+	},
+	{
+	    .compatible = "samsung,a22x-panel",
 	},
 	{}
 };

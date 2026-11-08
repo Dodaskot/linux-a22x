@@ -39,6 +39,14 @@ static bool himax_ft8722_panel_selected(void)
 		      "ft8722_fhdp_wt_dsi_vdo_cphy_90hz_truly");
 }
 
+static bool himax_panel_selected(void)
+{
+	return saved_command_line &&
+	       (strstr(saved_command_line,
+		       "hx83112f_fhdp_wt_dsi_vdo_cphy_90hz") ||
+		strstr(saved_command_line, "jdi,hx83112f"));
+}
+
 int himax_dev_set(struct himax_ts_data *ts)
 {
 	ts->input_dev = input_allocate_device();
@@ -266,8 +274,8 @@ static int himax_hx83112f_probe(struct spi_device *spi)
 	struct himax_ts_data *ts;
 	int ret;
 
-	if (himax_ft8722_panel_selected()) {
-		dev_dbg(&spi->dev, "skipping HX83112F for FT8722 panel\n");
+	if (himax_ft8722_panel_selected() || !himax_panel_selected()) {
+		dev_dbg(&spi->dev, "skipping HX83112F for non-Himax panel\n");
 		return -ENODEV;
 	}
 

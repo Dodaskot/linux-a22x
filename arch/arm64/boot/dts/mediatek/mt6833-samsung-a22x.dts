@@ -2008,7 +2008,9 @@
 			#size-cells = <0>;
 
 			panel_ml: panel@0 {
-				compatible = "wt,ft8722-fhdp-wt-dsi-vdo-cphy-90hz-truly";
+				compatible = "samsung,a22x-panel",
+					     "wt,ft8722-fhdp-wt-dsi-vdo-cphy-90hz-truly",
+					     "jdi,hx83112f-a22x";
 				reg = <0>;
 				reset-gpios = <&pio_ml 86 GPIO_ACTIVE_LOW>;
 				pm-enable-gpios = <&pio_ml 136 GPIO_ACTIVE_HIGH>;

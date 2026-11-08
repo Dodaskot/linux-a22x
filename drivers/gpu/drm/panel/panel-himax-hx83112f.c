@@ -8,8 +8,10 @@
 #include <linux/backlight.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
+#include <linux/init.h>
 #include <linux/module.h>
 #include <linux/regulator/consumer.h>
+#include <linux/string.h>
 
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
@@ -21,6 +23,10 @@ struct hx83112f {
 	struct mipi_dsi_device *dsi;
 	struct regulator_bulk_data *supplies;
 	struct gpio_desc *reset;
+	struct gpio_desc *pm_gpio;
+	struct gpio_desc *bias_pos;
+	struct gpio_desc *bias_neg;
+	bool gpio_power;
 	bool enabled;
 };
 
@@ -35,6 +41,12 @@ static const struct regulator_bulk_data hx83112f_supplies[] = {
 static inline struct hx83112f *to_hx83112f(struct drm_panel *panel)
 {
 	return container_of(panel, struct hx83112f, panel);
+}
+
+static bool hx83112f_panel_selected(void)
+{
+	return saved_command_line &&
+	       strstr(saved_command_line, "hx83112f");
 }
 
 static int hx83112f_init(struct hx83112f *ctx)
@@ -171,6 +183,15 @@ static int hx83112f_init(struct hx83112f *ctx)
 
 static void hx83112f_power_off(struct hx83112f *ctx)
 {
+	if (ctx->gpio_power) {
+		gpiod_set_value_cansleep(ctx->bias_neg, 0);
+		usleep_range(2000, 3000);
+		gpiod_set_value_cansleep(ctx->bias_pos, 0);
+		usleep_range(2000, 3000);
+		gpiod_set_value_cansleep(ctx->pm_gpio, 0);
+		return;
+	}
+
 	/* The negative rail must fall before the positive rail. */
 	regulator_disable(ctx->supplies[HX83112F_VSN].consumer);
 	usleep_range(2000, 3000);
@@ -188,18 +209,27 @@ static int hx83112f_prepare(struct drm_panel *panel)
 	gpiod_set_value_cansleep(ctx->reset, 1);
 	usleep_range(1000, 2000);
 
-	ret = regulator_enable(ctx->supplies[HX83112F_VDD].consumer);
-	if (ret)
-		return ret;
-	usleep_range(5000, 6000);
-	ret = regulator_enable(ctx->supplies[HX83112F_VSP].consumer);
-	if (ret)
-		goto disable_vdd;
-	usleep_range(2000, 3000);
-	ret = regulator_enable(ctx->supplies[HX83112F_VSN].consumer);
-	if (ret)
-		goto disable_vsp;
-	usleep_range(2000, 3000);
+	if (ctx->gpio_power) {
+		gpiod_set_value_cansleep(ctx->pm_gpio, 1);
+		usleep_range(5000, 6000);
+		gpiod_set_value_cansleep(ctx->bias_pos, 1);
+		usleep_range(2000, 3000);
+		gpiod_set_value_cansleep(ctx->bias_neg, 1);
+		usleep_range(2000, 3000);
+	} else {
+		ret = regulator_enable(ctx->supplies[HX83112F_VDD].consumer);
+		if (ret)
+			return ret;
+		usleep_range(5000, 6000);
+		ret = regulator_enable(ctx->supplies[HX83112F_VSP].consumer);
+		if (ret)
+			goto disable_vdd;
+		usleep_range(2000, 3000);
+		ret = regulator_enable(ctx->supplies[HX83112F_VSN].consumer);
+		if (ret)
+			goto disable_vsp;
+		usleep_range(2000, 3000);
+	}
 
 	gpiod_set_value_cansleep(ctx->reset, 0);
 	usleep_range(10000, 11000);
@@ -355,6 +385,9 @@ static int hx83112f_probe(struct mipi_dsi_device *dsi)
 	struct hx83112f *ctx;
 	int ret;
 
+	if (!hx83112f_panel_selected())
+		return -ENODEV;
+
 	ctx = devm_drm_panel_alloc(dev, struct hx83112f, panel,
 				   &hx83112f_funcs, DRM_MODE_CONNECTOR_DSI);
 	if (IS_ERR(ctx))
@@ -364,8 +397,23 @@ static int hx83112f_probe(struct mipi_dsi_device *dsi)
 
 	ret = devm_regulator_bulk_get_const(dev, ARRAY_SIZE(hx83112f_supplies),
 					    hx83112f_supplies, &ctx->supplies);
-	if (ret)
+	if (ret == -ENODEV) {
+		ctx->gpio_power = true;
+		ctx->pm_gpio = devm_gpiod_get(dev, "pm-enable", GPIOD_ASIS);
+		if (IS_ERR(ctx->pm_gpio))
+			return dev_err_probe(dev, PTR_ERR(ctx->pm_gpio),
+					     "Failed to get panel enable GPIO\n");
+		ctx->bias_pos = devm_gpiod_get_index(dev, "bias", 0, GPIOD_ASIS);
+		if (IS_ERR(ctx->bias_pos))
+			return dev_err_probe(dev, PTR_ERR(ctx->bias_pos),
+					     "Failed to get positive bias GPIO\n");
+		ctx->bias_neg = devm_gpiod_get_index(dev, "bias", 1, GPIOD_ASIS);
+		if (IS_ERR(ctx->bias_neg))
+			return dev_err_probe(dev, PTR_ERR(ctx->bias_neg),
+					     "Failed to get negative bias GPIO\n");
+	} else if (ret) {
 		return dev_err_probe(dev, ret, "Failed to get supplies\n");
+	}
 	ctx->reset = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
 	if (IS_ERR(ctx->reset))
 		return dev_err_probe(dev, PTR_ERR(ctx->reset), "Failed to get reset\n");
@@ -398,6 +446,7 @@ static void hx83112f_remove(struct mipi_dsi_device *dsi)
 
 static const struct of_device_id hx83112f_of_match[] = {
 	{ .compatible = "jdi,hx83112f-a22x" },
+	{ .compatible = "samsung,a22x-panel" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, hx83112f_of_match);
