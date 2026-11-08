@@ -474,6 +474,12 @@
 		interrupts-extended = <&pio_ml 14 IRQ_TYPE_EDGE_FALLING>;
 		reset-gpios = <&pio_ml 15 GPIO_ACTIVE_LOW>;
 		irq-gpios = <&pio_ml 14 GPIO_ACTIVE_LOW>;
+		/*
+		 * Himax is a panel follower: its zero-flash firmware must be
+		 * initialized after the selected panel enables the shared rails.
+		 * The FocalTech driver ignores this relationship on Truly.
+		 */
+		panel = <&panel_ml>;
 		touchscreen-size-x = <1080>;
 		touchscreen-size-y = <2408>;
 	};

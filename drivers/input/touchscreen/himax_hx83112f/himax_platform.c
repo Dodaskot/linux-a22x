@@ -275,9 +275,14 @@ static int himax_hx83112f_probe(struct spi_device *spi)
 	int ret;
 
 	if (himax_ft8722_panel_selected() || !himax_panel_selected()) {
-		dev_dbg(&spi->dev, "skipping HX83112F for non-Himax panel\n");
+		dev_info(&spi->dev, "skipping HX83112F for non-Himax panel\n");
 		return -ENODEV;
 	}
+
+	dev_info(&spi->dev, "HX83112F panel selected; SPI mode 3, IRQ %d\n",
+		 spi->irq);
+	if (spi->irq <= 0)
+		return dev_err_probe(&spi->dev, -EINVAL, "missing touch IRQ\n");
 
 	hx_reset_gpio = devm_gpiod_get_optional(&spi->dev, "reset", GPIOD_ASIS);
 	if (IS_ERR(hx_reset_gpio))
@@ -313,16 +318,18 @@ static int himax_hx83112f_probe(struct spi_device *spi)
 	g_fw_mp_upgrade_name = "Himax_firmware_mp_jdi.bin";
 
 	hx_follows_panel = drm_is_panel_follower(&spi->dev);
+	dev_info(&spi->dev, "panel follower relationship: %s\n",
+		 hx_follows_panel ? "present" : "missing");
 	if (hx_follows_panel) {
 		hx_panel_follower.funcs = &himax_panel_follower_funcs;
 		ret = drm_panel_add_follower(&spi->dev, &hx_panel_follower);
 		if (ret)
 			goto err;
 	} else {
-		ret = himax_chip_common_init();
-		if (ret < 0)
-			goto err;
-		dev_info(&spi->dev, "HX83112F touch ready, irq %d\n", spi->irq);
+		dev_warn(&spi->dev,
+			 "panel follower unavailable; deferring touch until panel is ready\n");
+		ret = -EPROBE_DEFER;
+		goto err;
 	}
 	return 0;
 err:
