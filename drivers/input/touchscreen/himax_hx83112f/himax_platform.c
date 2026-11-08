@@ -41,10 +41,15 @@ static bool himax_ft8722_panel_selected(void)
 
 static bool himax_panel_selected(void)
 {
-	return saved_command_line &&
-	       (strstr(saved_command_line,
-		       "hx83112f_fhdp_wt_dsi_vdo_cphy_90hz") ||
-		strstr(saved_command_line, "jdi,hx83112f"));
+	if (!saved_command_line)
+		return false;
+
+	if (strstr(saved_command_line,
+		   "ft8722_fhdp_wt_dsi_vdo_cphy_90hz_truly"))
+		return false;
+
+	return strstr(saved_command_line, "hx83112f") ||
+	       strstr(saved_command_line, "himax");
 }
 
 int himax_dev_set(struct himax_ts_data *ts)
@@ -239,6 +244,7 @@ static int himax_panel_prepared(struct drm_panel_follower *follower)
 {
 	int ret;
 
+	dev_info(g_device, "panel prepared; starting HX83112F initialization\n");
 	/* Zero-flash firmware may only be loaded while the shared rails are on. */
 	if (!g_hx_chip_inited) {
 		ret = himax_chip_common_init();
@@ -302,6 +308,8 @@ static int himax_hx83112f_probe(struct spi_device *spi)
 	}
 
 	hx_spi = spi;
+	/* The Android driver operates this controller at 1 MHz. */
+	spi->max_speed_hz = 1000000;
 	spi->mode = SPI_MODE_3;
 	spi->bits_per_word = 8;
 	ret = spi_setup(spi);
@@ -327,9 +335,11 @@ static int himax_hx83112f_probe(struct spi_device *spi)
 			goto err;
 	} else {
 		dev_warn(&spi->dev,
-			 "panel follower unavailable; deferring touch until panel is ready\n");
-		ret = -EPROBE_DEFER;
-		goto err;
+			 "panel follower unavailable; initializing after SPI probe\n");
+		ret = himax_chip_common_init();
+		if (ret < 0)
+			goto err;
+		dev_info(&spi->dev, "HX83112F touch ready, irq %d\n", spi->irq);
 	}
 	return 0;
 err:

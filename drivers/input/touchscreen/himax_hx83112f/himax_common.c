@@ -2867,6 +2867,8 @@ static void himax_boot_upgrade(struct work_struct *work)
 {
 #if defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)
 	int fw_sts = -1;
+	int fw_ret = 0;
+	unsigned int upgrade_attempt;
 #endif
 
 #if defined(__EMBEDDED_FW__)
@@ -2894,8 +2896,11 @@ static void himax_boot_upgrade(struct work_struct *work)
 
 #if defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)
 	fw_sts = i_get_FW();
-	if (fw_sts < NO_ERR)
+	if (fw_sts < NO_ERR) {
+		E("%s: firmware request failed for %s\n",
+		  __func__, g_fw_boot_upgrade_name);
 		goto END;
+	}
 
 	g_core_fp.fp_bin_desc_get((unsigned char *)hxfw->data, HX1K);
 
@@ -2907,7 +2912,18 @@ static void himax_boot_upgrade(struct work_struct *work)
 #endif
 
 	if (g_boot_upgrade_flag == true) {
-		if (i_update_FW() <= 0) {
+		for (upgrade_attempt = 0; upgrade_attempt < 5; upgrade_attempt++) {
+			fw_ret = i_update_FW();
+			if (fw_ret > 0)
+				break;
+
+			E("%s: firmware update attempt %u failed\n",
+			  __func__, upgrade_attempt + 1);
+			himax_excp_hw_reset();
+			msleep(100);
+		}
+
+		if (fw_ret <= 0) {
 			E("%s: Update FW fail\n", __func__);
 		} else {
 			I("%s: Update FW success\n", __func__);
