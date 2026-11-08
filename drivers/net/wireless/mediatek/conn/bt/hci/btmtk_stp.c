@@ -276,7 +276,7 @@ static int btmtk_stp_setup(struct hci_dev *hdev)
 	const struct firmware *fw = NULL;
 	bdaddr_t ba;
 	const char *address = bdaddr;
-	char address_buf[18];
+	char address_buf[19];
 	u8 b[6];
 	int i;
 	int err;
@@ -313,6 +313,8 @@ static int btmtk_stp_setup(struct hci_dev *hdev)
 	}
 	for (i = 0; i < 6; i++)
 		ba.b[i] = b[5 - i];
+	bt_dev_info(hdev, "using factory BD address from %s", bdaddr ? "module parameter" :
+		    bdaddr_fw);
 	return btmtk_stp_set_bdaddr(hdev, &ba);
 }
 
