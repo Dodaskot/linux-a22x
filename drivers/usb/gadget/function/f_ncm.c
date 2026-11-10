@@ -1158,7 +1158,17 @@ static enum hrtimer_restart ncm_tx_timeout(struct hrtimer *data)
 		 *
 		 * This will call directly into u_ether's eth_start_xmit()
 		 */
-		netdev->netdev_ops->ndo_start_xmit(NULL, netdev);
+		/* A22x: when every IN request is still in flight u_ether answers
+		 * NETDEV_TX_BUSY before wrapping, and the flush was lost: the last
+		 * NTB of a burst (up to 32 KiB) stayed queued until some other
+		 * packet came, which stalled SSH transfers for tens of seconds.
+		 * The data is still held here, so try again a little later.
+		 */
+		if (netdev->netdev_ops->ndo_start_xmit(NULL, netdev) == NETDEV_TX_BUSY &&
+		    READ_ONCE(ncm->skb_tx_data)) {
+			hrtimer_forward_now(data, TX_TIMEOUT_NSECS);
+			return HRTIMER_RESTART;
+		}
 	}
 	return HRTIMER_NORESTART;
 }
