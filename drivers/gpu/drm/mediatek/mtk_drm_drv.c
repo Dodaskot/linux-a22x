@@ -27,6 +27,7 @@
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_vblank.h>
 
+#include "mtk_boot_splash.h"
 #include "mtk_crtc.h"
 #include "mtk_ddp_comp.h"
 #include "mtk_disp_drv.h"
@@ -686,6 +687,7 @@ static int mtk_drm_bind(struct device *dev)
 		goto err_deinit;
 
 	drm_client_setup(drm, NULL);
+	mtk_boot_splash_start(drm);
 
 	return 0;
 

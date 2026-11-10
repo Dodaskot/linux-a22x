@@ -18,6 +18,8 @@ mediatek-drm-y := mtk_crtc.o \
 		  mtk_padding.o \
 		  mtk_plane.o
 
+mediatek-drm-$(CONFIG_DRM_MEDIATEK_BOOT_SPLASH) += mtk_boot_splash.o
+
 obj-$(CONFIG_DRM_MEDIATEK) += mediatek-drm.o
 
 obj-$(CONFIG_DRM_MEDIATEK_HDMI_COMMON) += mtk_hdmi_common.o

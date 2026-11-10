@@ -21,6 +21,13 @@ config DRM_MEDIATEK
 	  This driver provides kernel mode setting and
 	  buffer management to userspace.
 
+config DRM_MEDIATEK_BOOT_SPLASH
+	bool "Boot logo and progress bar for the A22x recovery"
+	depends on DRM_MEDIATEK && DRM_FBDEV_EMULATION
+	help
+	  Draw the recovery logo and a progress bar into the fbdev buffer as
+	  soon as it exists, until userspace takes the screen over.
+
 config DRM_MEDIATEK_DP
 	tristate "DRM DPTX Support for MediaTek SoCs"
 	depends on DRM_MEDIATEK
