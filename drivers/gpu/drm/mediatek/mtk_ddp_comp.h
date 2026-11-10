@@ -79,6 +79,10 @@ struct mtk_ddp_comp_funcs {
 	void (*bgclr_in_off)(struct device *dev);
 	void (*ctm_set)(struct device *dev,
 			struct drm_crtc_state *state);
+	bool (*seamless_timing)(struct device *dev,
+				const struct drm_display_mode *mode);
+	void (*set_seamless_timing)(struct device *dev,
+				    const struct drm_display_mode *mode);
 	struct device * (*dma_dev_get)(struct device *dev);
 	u32 (*get_blend_modes)(struct device *dev);
 	const u32 *(*get_formats)(struct device *dev);
@@ -99,6 +103,20 @@ struct mtk_ddp_comp {
 	int encoder_index;
 	const struct mtk_ddp_comp_funcs *funcs;
 };
+
+static inline bool mtk_ddp_comp_seamless_timing(struct mtk_ddp_comp *comp,
+						const struct drm_display_mode *mode)
+{
+	return comp->funcs && comp->funcs->seamless_timing &&
+	       comp->funcs->seamless_timing(comp->dev, mode);
+}
+
+static inline void mtk_ddp_comp_set_seamless_timing(struct mtk_ddp_comp *comp,
+						    const struct drm_display_mode *mode)
+{
+	if (comp->funcs && comp->funcs->set_seamless_timing)
+		comp->funcs->set_seamless_timing(comp->dev, mode);
+}
 
 static inline int mtk_ddp_comp_power_on(struct mtk_ddp_comp *comp)
 {

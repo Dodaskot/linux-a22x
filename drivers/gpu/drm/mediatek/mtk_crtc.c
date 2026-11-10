@@ -5,6 +5,7 @@
 
 #include <linux/clk.h>
 #include <linux/dma-mapping.h>
+#include <linux/delay.h>
 #include <linux/mailbox_controller.h>
 #include <linux/of.h>
 #include <linux/pm_runtime.h>
@@ -81,6 +82,7 @@ struct mtk_crtc_state {
 	unsigned int			pending_width;
 	unsigned int			pending_height;
 	unsigned int			pending_vrefresh;
+	bool				seamless_timing;
 };
 
 static inline struct mtk_crtc *to_mtk_crtc(struct drm_crtc *c)
@@ -178,6 +180,7 @@ static struct drm_crtc_state *mtk_crtc_duplicate_state(struct drm_crtc *crtc)
 	WARN_ON(state->base.crtc != crtc);
 	state->base.crtc = crtc;
 	state->pending_config = false;
+	state->seamless_timing = false;
 
 	return &state->base;
 }
@@ -843,6 +846,77 @@ static void mtk_crtc_atomic_disable(struct drm_crtc *crtc,
 	mtk_crtc->enabled = false;
 }
 
+/* Only the vertical front porch differs: same lines, same sync, same link. */
+static bool mtk_crtc_modes_differ_in_vfp(const struct drm_display_mode *a,
+					 const struct drm_display_mode *b)
+{
+	return a->hdisplay == b->hdisplay && a->hsync_start == b->hsync_start &&
+	       a->hsync_end == b->hsync_end && a->htotal == b->htotal &&
+	       a->vdisplay == b->vdisplay && a->flags == b->flags &&
+	       a->vsync_end - a->vsync_start == b->vsync_end - b->vsync_start &&
+	       a->vtotal - a->vsync_end == b->vtotal - b->vsync_end &&
+	       a->vsync_start != b->vsync_start;
+}
+
+/*
+ * Keep the pipeline running through such a mode change. Without this the helpers
+ * power the panel down and up again, which leaves the screen dark for 0.5 s.
+ */
+static int mtk_crtc_atomic_check(struct drm_crtc *crtc,
+				 struct drm_atomic_commit *state)
+{
+	struct drm_crtc_state *old = drm_atomic_get_old_crtc_state(state, crtc);
+	struct drm_crtc_state *new = drm_atomic_get_new_crtc_state(state, crtc);
+	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
+	int i;
+
+	to_mtk_crtc_state(new)->seamless_timing = false;
+	if (!new->mode_changed || new->active_changed || new->connectors_changed ||
+	    !old->active || !new->active ||
+	    !mtk_crtc_modes_differ_in_vfp(&old->adjusted_mode, &new->adjusted_mode))
+		return 0;
+
+	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++) {
+		if (mtk_ddp_comp_seamless_timing(mtk_crtc->ddp_comp[i],
+						 &new->adjusted_mode)) {
+			to_mtk_crtc_state(new)->seamless_timing = true;
+			new->mode_changed = false;
+			break;
+		}
+	}
+	return 0;
+}
+
+/*
+ * The porch must not change while it is being counted. The vblank event comes at
+ * one end of the blanking, whose length here is 0.5 to 6.1 ms, and the 10.6 ms of
+ * active lines follow: 8 to 10 ms after the event is inside them at either rate,
+ * wherever in the blanking the event fired.
+ */
+static void mtk_crtc_apply_seamless_timing(struct drm_crtc *crtc)
+{
+	const struct drm_display_mode *mode = &crtc->state->adjusted_mode;
+	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
+	unsigned int tries;
+	int i;
+
+	for (tries = 0; tries < 8; tries++) {
+		ktime_t start;
+
+		drm_crtc_wait_one_vblank(crtc);
+		start = ktime_get();
+		usleep_range(8000, 8100);
+		if (ktime_ms_delta(ktime_get(), start) >= 10)
+			continue;
+		for (i = 0; i < mtk_crtc->ddp_comp_nr; i++)
+			mtk_ddp_comp_set_seamless_timing(mtk_crtc->ddp_comp[i], mode);
+		return;
+	}
+	drm_warn(crtc->dev, "no safe moment for the new refresh timing\n");
+	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++)
+		mtk_ddp_comp_set_seamless_timing(mtk_crtc->ddp_comp[i], mode);
+}
+
 static void mtk_crtc_atomic_begin(struct drm_crtc *crtc,
 				  struct drm_atomic_commit *state)
 {
@@ -879,6 +953,8 @@ static void mtk_crtc_atomic_flush(struct drm_crtc *crtc,
 			mtk_ddp_gamma_set(mtk_crtc->ddp_comp[i], crtc->state);
 			mtk_ddp_ctm_set(mtk_crtc->ddp_comp[i], crtc->state);
 		}
+	if (to_mtk_crtc_state(crtc->state)->seamless_timing)
+		mtk_crtc_apply_seamless_timing(crtc);
 	mtk_crtc_update_config(mtk_crtc, !!mtk_crtc->event);
 }
 
@@ -897,6 +973,7 @@ static const struct drm_crtc_helper_funcs mtk_crtc_helper_funcs = {
 	.mode_fixup	= mtk_crtc_mode_fixup,
 	.mode_set_nofb	= mtk_crtc_mode_set_nofb,
 	.mode_valid	= mtk_crtc_mode_valid,
+	.atomic_check	= mtk_crtc_atomic_check,
 	.atomic_begin	= mtk_crtc_atomic_begin,
 	.atomic_flush	= mtk_crtc_atomic_flush,
 	.atomic_enable	= mtk_crtc_atomic_enable,

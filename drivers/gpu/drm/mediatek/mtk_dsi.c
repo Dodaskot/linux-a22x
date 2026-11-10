@@ -1040,6 +1040,29 @@ void mtk_dsi_ddp_stop(struct device *dev)
 	mtk_dsi_poweroff(dsi);
 }
 
+/*
+ * A video-mode panel on a fixed link rate changes refresh with the vertical
+ * front porch alone. The vendor kernel does this for the same panel: one write
+ * to DSI_VFP_NL, no panel command and no PLL change, so the panel stays lit.
+ */
+bool mtk_dsi_ddp_seamless_timing(struct device *dev,
+				 const struct drm_display_mode *mode)
+{
+	struct mtk_dsi *dsi = dev_get_drvdata(dev);
+
+	return dsi->enabled && dsi->hs_rate && dsi->driver_data->is_cphy &&
+	       (dsi->mode_flags & MIPI_DSI_MODE_VIDEO);
+}
+
+void mtk_dsi_ddp_set_seamless_timing(struct device *dev,
+				     const struct drm_display_mode *mode)
+{
+	struct mtk_dsi *dsi = dev_get_drvdata(dev);
+
+	drm_display_mode_to_videomode(mode, &dsi->vm);
+	writel(dsi->vm.vfront_porch, dsi->regs + DSI_VFP_NL);
+}
+
 static int mtk_dsi_encoder_init(struct drm_device *drm, struct mtk_dsi *dsi)
 {
 	int ret;
