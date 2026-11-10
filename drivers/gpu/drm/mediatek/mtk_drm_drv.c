@@ -27,6 +27,7 @@
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_vblank.h>
 
+#include "mtk_boot_splash.h"
 #include "mtk_crtc.h"
 #include "mtk_ddp_comp.h"
 #include "mtk_disp_drv.h"
@@ -618,8 +619,15 @@ static void mtk_drm_kms_deinit(struct drm_device *drm)
 
 DEFINE_DRM_GEM_FOPS(mtk_drm_fops);
 
+/* The first compositor or greeter that takes the display ends the boot splash. */
+static void mtk_drm_master_set(struct drm_device *drm, struct drm_file *file, bool from_open)
+{
+	mtk_boot_splash_master_set(drm);
+}
+
 static const struct drm_driver mtk_drm_driver = {
 	.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_ATOMIC,
+	.master_set = mtk_drm_master_set,
 
 	DRM_GEM_DMA_DRIVER_OPS,
 	DRM_FBDEV_DMA_DRIVER_OPS,
@@ -686,6 +694,7 @@ static int mtk_drm_bind(struct device *dev)
 		goto err_deinit;
 
 	drm_client_setup(drm, NULL);
+	mtk_boot_splash_start(drm);
 
 	return 0;
 
