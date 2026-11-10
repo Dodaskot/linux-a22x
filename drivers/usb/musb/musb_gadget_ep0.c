@@ -625,7 +625,7 @@ __releases(musb->lock)
 __acquires(musb->lock)
 {
 	int retval;
-	if (!musb->gadget_driver)
+	if (!musb->gadget_callbacks || !musb->gadget_driver)
 		return -EOPNOTSUPP;
 	spin_unlock(&musb->lock);
 	retval = musb->gadget_driver->setup(&musb->g, ctrlrequest);

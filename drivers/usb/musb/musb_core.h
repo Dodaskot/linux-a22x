@@ -288,6 +288,12 @@ struct musb {
 	struct delayed_work	deassert_reset_work;
 	struct delayed_work	finish_resume_work;
 	struct delayed_work	gadget_work;
+	struct work_struct	gadget_rx_work;
+	/* Protected by lock; binding, start and PM lifetimes are distinct. */
+	bool			gadget_callbacks;
+	bool			gadget_rx_started;
+	bool			gadget_rx_paused;
+	bool			gadget_rx_resetting;
 	u16			hwvers;
 
 	u16			intrrxe;

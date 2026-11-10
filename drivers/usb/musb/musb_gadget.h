@@ -23,6 +23,9 @@ extern void musb_g_wakeup(struct musb *);
 extern void musb_g_disconnect(struct musb *);
 extern void musb_gadget_cleanup(struct musb *);
 extern int musb_gadget_setup(struct musb *);
+extern void musb_gadget_rx_work_init(struct musb *);
+extern void musb_gadget_rx_work_suspend(struct musb *);
+extern void musb_gadget_rx_work_resume(struct musb *);
 
 #else
 static inline irqreturn_t musb_g_ep0_irq(struct musb *musb)
@@ -38,6 +41,9 @@ static inline void musb_g_resume(struct musb *musb)		{}
 static inline void musb_g_wakeup(struct musb *musb)		{}
 static inline void musb_g_disconnect(struct musb *musb)		{}
 static inline void musb_gadget_cleanup(struct musb *musb)	{}
+static inline void musb_gadget_rx_work_init(struct musb *musb)	{}
+static inline void musb_gadget_rx_work_suspend(struct musb *musb)	{}
+static inline void musb_gadget_rx_work_resume(struct musb *musb)	{}
 static inline int musb_gadget_setup(struct musb *musb)
 {
 	return 0;

@@ -2491,6 +2491,7 @@ musb_init_controller(struct device *dev, int nIrq, void __iomem *ctrl)
 	INIT_DELAYED_WORK(&musb->irq_work, musb_irq_work);
 	INIT_DELAYED_WORK(&musb->deassert_reset_work, musb_deassert_reset);
 	INIT_DELAYED_WORK(&musb->finish_resume_work, musb_host_finish_resume);
+	musb_gadget_rx_work_init(musb);
 
 	/* setup musb parts of the core (especially endpoints) */
 	status = musb_core_init(plat->config->multipoint
@@ -2566,6 +2567,7 @@ musb_init_controller(struct device *dev, int nIrq, void __iomem *ctrl)
 	return 0;
 
 fail3:
+	musb_gadget_rx_work_suspend(musb);
 	cancel_delayed_work_sync(&musb->irq_work);
 	cancel_delayed_work_sync(&musb->finish_resume_work);
 	cancel_delayed_work_sync(&musb->deassert_reset_work);
@@ -2630,6 +2632,7 @@ static void musb_remove(struct platform_device *pdev)
 	 */
 	musb_exit_debugfs(musb);
 
+	musb_gadget_rx_work_suspend(musb);
 	cancel_delayed_work_sync(&musb->irq_work);
 	cancel_delayed_work_sync(&musb->finish_resume_work);
 	cancel_delayed_work_sync(&musb->deassert_reset_work);
@@ -2810,6 +2813,7 @@ static int musb_suspend(struct device *dev)
 		return ret;
 	}
 
+	musb_gadget_rx_work_suspend(musb);
 	musb_platform_disable(musb);
 	musb_disable_interrupts(musb);
 
@@ -2883,6 +2887,7 @@ static int musb_resume(struct device *dev)
 			error);
 	spin_unlock_irqrestore(&musb->lock, flags);
 
+	musb_gadget_rx_work_resume(musb);
 	pm_runtime_put_autosuspend(dev);
 
 	return 0;

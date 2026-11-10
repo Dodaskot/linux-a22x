@@ -113,6 +113,22 @@ static inline void unmap_dma_buffer(struct musb_request *request,
 	request->map_state = UN_MAPPED;
 }
 
+/* Caller holds the controller lock.  None of these gates can revive another. */
+static bool musb_g_rx_ready(struct musb *musb)
+{
+	return musb->gadget_callbacks && musb->gadget_rx_started &&
+		!musb->gadget_rx_paused && !musb->gadget_rx_resetting &&
+		musb->gadget_driver && !is_host_active(musb) &&
+		!musb->is_suspended && musb->g.speed != USB_SPEED_UNKNOWN;
+}
+
+static void musb_g_rx_kick(struct musb *musb)
+{
+	lockdep_assert_held(&musb->lock);
+	if (musb_g_rx_ready(musb))
+		schedule_work(&musb->gadget_rx_work);
+}
+
 /*
  * Immediately complete a request.
  *
@@ -148,6 +164,9 @@ __acquires(ep->musb->lock)
 	usb_gadget_giveback_request(&req->ep->end_point, &req->request);
 	spin_lock(&musb->lock);
 	ep->busy = busy;
+	/* A callback may have queued the next OUT request while busy was set. */
+	if (!ep->busy && ep->desc && !ep->is_in && next_request(ep))
+		musb_g_rx_kick(musb);
 }
 
 /* ----------------------------------------------------------------------- */
@@ -804,6 +823,10 @@ void musb_g_rx(struct musb *musb, u8 epnum)
 	else
 		musb_ep = &hw_ep->ep_out;
 
+	if (!musb_g_rx_ready(musb) || !musb_ep->desc ||
+	    musb_ep->is_in || musb_ep->busy)
+		return;
+
 	musb_ep_select(mbase, epnum);
 
 	req = next_request(musb_ep);
@@ -882,6 +905,10 @@ void musb_g_rx(struct musb *musb, u8 epnum)
 		}
 #endif
 		musb_g_giveback(musb_ep, request, 0);
+		/* The callback may have disabled, rebound or suspended the gadget. */
+		if (!musb_g_rx_ready(musb) || !musb_ep->desc ||
+		    musb_ep->is_in || musb_ep->busy)
+			return;
 		/*
 		 * In the giveback function the MUSB lock is
 		 * released and acquired after sometime. During
@@ -902,6 +929,68 @@ exit:
 #endif
 	/* Analyze request */
 	rxstate(musb, req);
+}
+
+/*
+ * A packet can be ACKed into the FIFO before the next request is queued.
+ * Consume it asynchronously: a PIO short packet can complete a request, and
+ * completion must never run on the usb_ep_queue() call stack.  Keep no request
+ * pointer across scheduling or giveback, and never poll a busy endpoint.
+ */
+static void musb_g_rx_work(struct work_struct *work)
+{
+	struct musb *musb = container_of(work, struct musb, gadget_rx_work);
+	struct musb_hw_ep *hw_ep;
+	struct musb_ep *ep;
+	unsigned long flags;
+	u8 epnum;
+	int ret;
+
+	ret = pm_runtime_resume_and_get(musb->controller);
+	if (ret < 0)
+		return;
+
+	spin_lock_irqsave(&musb->lock, flags);
+	for (epnum = 1; epnum < musb->nr_endpoints; epnum++) {
+		/* musb_g_rx() can drop the lock for a completion callback. */
+		if (!musb_g_rx_ready(musb))
+			break;
+		hw_ep = &musb->endpoints[epnum];
+		ep = hw_ep->is_shared_fifo ? &hw_ep->ep_in : &hw_ep->ep_out;
+		if (!ep->desc || ep->is_in || ep->busy || !next_request(ep))
+			continue;
+		musb_g_rx(musb, epnum);
+	}
+	spin_unlock_irqrestore(&musb->lock, flags);
+	pm_runtime_mark_last_busy(musb->controller);
+	pm_runtime_put_autosuspend(musb->controller);
+}
+
+void musb_gadget_rx_work_init(struct musb *musb)
+{
+	INIT_WORK(&musb->gadget_rx_work, musb_g_rx_work);
+}
+
+/* Process context, before clocks/interrupts are disabled or memory is freed. */
+void musb_gadget_rx_work_suspend(struct musb *musb)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&musb->lock, flags);
+	musb->gadget_rx_paused = true;
+	spin_unlock_irqrestore(&musb->lock, flags);
+	cancel_work_sync(&musb->gadget_rx_work);
+}
+
+/* Context and clocks are restored; do not reopen a stopped/unbound gadget. */
+void musb_gadget_rx_work_resume(struct musb *musb)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&musb->lock, flags);
+	musb->gadget_rx_paused = false;
+	musb_g_rx_kick(musb);
+	spin_unlock_irqrestore(&musb->lock, flags);
 }
 
 /* ------------------------------------------------------------ */
@@ -1162,18 +1251,12 @@ void musb_free_request(struct usb_ep *ep, struct usb_request *req)
  */
 void musb_ep_restart(struct musb *musb, struct musb_request *req)
 {
-	u16 csr;
-	void __iomem *epio = req->ep->hw_ep->regs;
-
 	trace_musb_req_start(req);
-	musb_ep_select(musb->mregs, req->epnum);
 	if (req->tx) {
+		musb_ep_select(musb->mregs, req->epnum);
 		txstate(musb, req);
 	} else {
-		csr = musb_readw(epio, MUSB_RXCSR);
-		csr |= MUSB_RXCSR_FLUSHFIFO | MUSB_RXCSR_P_WZC_BITS;
-		musb_writew(epio, MUSB_RXCSR, csr);
-		musb_writew(epio, MUSB_RXCSR, csr);
+		musb_g_rx_kick(musb);
 	}
 }
 
@@ -1246,9 +1329,13 @@ static int musb_gadget_queue(struct usb_ep *ep, struct usb_request *req,
 
 	/* it this is the head of the queue, start i/o ... */
 	if (!musb_ep->busy && &request->list == musb_ep->req_list.next) {
-		status = musb_queue_resume_work(musb,
+		if (request->tx)
+			status = musb_queue_resume_work(musb,
 						musb_ep_restart_resume_work,
 						request);
+		else
+			/* The RX worker acquires PM and selects the live head. */
+			musb_g_rx_kick(musb);
 		if (status < 0) {
 			dev_err(musb->controller, "%s resume work: %i\n",
 				__func__, status);
@@ -1668,6 +1755,21 @@ static int musb_gadget_start(struct usb_gadget *g,
 		struct usb_gadget_driver *driver);
 static int musb_gadget_stop(struct usb_gadget *g);
 
+/* UDC core calls this in process context, before driver->unbind(). */
+static void musb_gadget_async_callbacks(struct usb_gadget *g, bool enable)
+{
+	struct musb *musb = gadget_to_musb(g);
+	unsigned long flags;
+
+	spin_lock_irqsave(&musb->lock, flags);
+	musb->gadget_callbacks = enable;
+	if (enable)
+		musb_g_rx_kick(musb);
+	spin_unlock_irqrestore(&musb->lock, flags);
+	if (!enable)
+		cancel_work_sync(&musb->gadget_rx_work);
+}
+
 static const struct usb_gadget_ops musb_gadget_operations = {
 	.get_frame		= musb_gadget_get_frame,
 	.wakeup			= musb_gadget_wakeup,
@@ -1677,6 +1779,7 @@ static const struct usb_gadget_ops musb_gadget_operations = {
 	.pullup			= musb_gadget_pullup,
 	.udc_start		= musb_gadget_start,
 	.udc_stop		= musb_gadget_stop,
+	.udc_async_callbacks	= musb_gadget_async_callbacks,
 };
 
 /* ----------------------------------------------------------------------- */
@@ -1778,6 +1881,7 @@ int musb_gadget_setup(struct musb *musb)
 	musb->g.ops = &musb_gadget_operations;
 	musb->g.max_speed = USB_SPEED_HIGH;
 	musb->g.speed = USB_SPEED_UNKNOWN;
+	musb->g.irq = musb->nIrq;
 
 	MUSB_DEV_MODE(musb);
 	musb_set_state(musb, OTG_STATE_B_IDLE);
@@ -1798,6 +1902,7 @@ int musb_gadget_setup(struct musb *musb)
 
 	return 0;
 err:
+	musb_gadget_async_callbacks(&musb->g, false);
 	musb->g.dev.parent = NULL;
 	device_unregister(&musb->g.dev);
 	return status;
@@ -1808,6 +1913,7 @@ void musb_gadget_cleanup(struct musb *musb)
 	if (musb->port_mode == MUSB_HOST)
 		return;
 
+	musb_gadget_async_callbacks(&musb->g, false);
 	cancel_delayed_work_sync(&musb->gadget_work);
 	usb_del_gadget_udc(&musb->g);
 }
@@ -1852,6 +1958,10 @@ static int musb_gadget_start(struct usb_gadget *g,
 	spin_unlock_irqrestore(&musb->lock, flags);
 
 	musb_start(musb);
+	spin_lock_irqsave(&musb->lock, flags);
+	musb->gadget_rx_started = true;
+	musb_g_rx_kick(musb);
+	spin_unlock_irqrestore(&musb->lock, flags);
 
 	/* REVISIT:  funcall to other code, which also
 	 * handles power budgeting ... this way also
@@ -1878,6 +1988,11 @@ static int musb_gadget_stop(struct usb_gadget *g)
 {
 	struct musb	*musb = gadget_to_musb(g);
 	unsigned long	flags;
+
+	spin_lock_irqsave(&musb->lock, flags);
+	musb->gadget_rx_started = false;
+	spin_unlock_irqrestore(&musb->lock, flags);
+	cancel_work_sync(&musb->gadget_rx_work);
 
 	pm_runtime_get_sync(musb->controller);
 
@@ -1931,7 +2046,8 @@ void musb_g_resume(struct musb *musb)
 	case OTG_STATE_B_WAIT_ACON:
 	case OTG_STATE_B_PERIPHERAL:
 		musb->is_active = 1;
-		if (musb->gadget_driver && musb->gadget_driver->resume) {
+		if (musb->gadget_callbacks && musb->gadget_driver &&
+		    musb->gadget_driver->resume) {
 			spin_unlock(&musb->lock);
 			musb->gadget_driver->resume(&musb->g);
 			spin_lock(&musb->lock);
@@ -1941,6 +2057,7 @@ void musb_g_resume(struct musb *musb)
 		WARNING("unhandled RESUME transition (%s)\n",
 			musb_otg_state_string(musb));
 	}
+	musb_g_rx_kick(musb);
 }
 
 /* called when SOF packets stop for 3+ msec */
@@ -1958,7 +2075,8 @@ void musb_g_suspend(struct musb *musb)
 		break;
 	case OTG_STATE_B_PERIPHERAL:
 		musb->is_suspended = 1;
-		if (musb->gadget_driver && musb->gadget_driver->suspend) {
+		if (musb->gadget_callbacks && musb->gadget_driver &&
+		    musb->gadget_driver->suspend) {
 			spin_unlock(&musb->lock);
 			musb->gadget_driver->suspend(&musb->g);
 			spin_lock(&musb->lock);
@@ -1994,7 +2112,8 @@ void musb_g_disconnect(struct musb *musb)
 	(void) musb_gadget_vbus_draw(&musb->g, 0);
 
 	musb->g.speed = USB_SPEED_UNKNOWN;
-	if (musb->gadget_driver && musb->gadget_driver->disconnect) {
+	if (musb->gadget_callbacks && musb->gadget_driver &&
+	    musb->gadget_driver->disconnect) {
 		spin_unlock(&musb->lock);
 		musb->gadget_driver->disconnect(&musb->g);
 		spin_lock(&musb->lock);
@@ -2041,8 +2160,10 @@ __acquires(musb->lock)
 				: NULL
 			);
 
+	musb->gadget_rx_resetting = true;
 	/* report reset, if we didn't already (flushing EP state) */
-	if (musb->gadget_driver && musb->g.speed != USB_SPEED_UNKNOWN) {
+	if (musb->gadget_callbacks && musb->gadget_driver &&
+	    musb->g.speed != USB_SPEED_UNKNOWN) {
 		spin_unlock(&musb->lock);
 		usb_gadget_udc_reset(&musb->g, musb->gadget_driver);
 		spin_lock(&musb->lock);
@@ -2092,4 +2213,6 @@ __acquires(musb->lock)
 
 	/* start with default limits on VBUS power draw */
 	(void) musb_gadget_vbus_draw(&musb->g, 8);
+	musb->gadget_rx_resetting = false;
+	musb_g_rx_kick(musb);
 }
