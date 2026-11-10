@@ -592,8 +592,33 @@ static int mtk_musb_resume_noirq(struct device *dev)
 	return 0;
 }
 
+/* After s2idle the gadget stayed "not attached" until the cable was replugged
+ * (A22x, 2026-11-09): musb_suspend() clears DEVCTL, so the host sees a
+ * disconnect, and after resume the controller showed a B-session (DEVCTL 0x99)
+ * with SOFTCONN set and unchanged PHY registers, yet the host never saw the
+ * device again. Switching the role to none and back to device (session reset,
+ * PHY save-current and full PHY re-init) brought it back every time. Do that
+ * replug in software after every system sleep with the device role, once
+ * musb_resume() has run.
+ */
+static void mtk_musb_complete(struct device *dev)
+{
+	struct mtk_glue *glue = dev_get_drvdata(dev);
+	struct musb *musb = glue->musb;
+
+	if (!of_device_is_compatible(dev->of_node, "mediatek,mt6833-musb"))
+		return;
+	if (!musb || IS_ERR_OR_NULL(glue->role_sw) ||
+	    glue->role != USB_ROLE_DEVICE || !musb->gadget_driver)
+		return;
+	dev_info(dev, "re-attaching the device role after system sleep\n");
+	usb_role_switch_set_role(glue->role_sw, USB_ROLE_NONE);
+	usb_role_switch_set_role(glue->role_sw, USB_ROLE_DEVICE);
+}
+
 static const struct dev_pm_ops mtk_musb_pm_ops = {
 	NOIRQ_SYSTEM_SLEEP_PM_OPS(mtk_musb_suspend_noirq, mtk_musb_resume_noirq)
+	.complete = pm_sleep_ptr(mtk_musb_complete),
 };
 
 #ifdef CONFIG_OF
