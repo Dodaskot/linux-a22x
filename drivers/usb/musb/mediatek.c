@@ -266,6 +266,8 @@ static int mtk_musb_init(struct musb *musb)
 	int ret;
 
 	glue->musb = musb;
+	/* A22x: stay connected to the computer through system sleep. */
+	musb->keep_link_in_sleep = of_device_is_compatible(dev->parent->of_node, "mediatek,mt6833-musb");
 	musb->phy = glue->phy;
 	musb->xceiv = glue->xceiv;
 	musb->is_host = false;
@@ -611,6 +613,11 @@ static void mtk_musb_complete(struct device *dev)
 	if (!musb || IS_ERR_OR_NULL(glue->role_sw) ||
 	    glue->role != USB_ROLE_DEVICE || !musb->gadget_driver)
 		return;
+	/* The link stayed up through this sleep: the computer never lost the device. */
+	if (musb->link_kept) {
+		musb->link_kept = false;
+		return;
+	}
 	dev_info(dev, "re-attaching the device role after system sleep\n");
 	usb_role_switch_set_role(glue->role_sw, USB_ROLE_NONE);
 	usb_role_switch_set_role(glue->role_sw, USB_ROLE_DEVICE);

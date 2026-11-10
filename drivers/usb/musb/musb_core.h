@@ -291,6 +291,9 @@ struct musb {
 	struct work_struct	gadget_rx_work;
 	/* Protected by lock; binding, start and PM lifetimes are distinct. */
 	bool			gadget_callbacks;
+	/* Device role kept connected through system sleep (glue opt-in; link_kept: this sleep). */
+	bool			keep_link_in_sleep;
+	bool			link_kept;
 	bool			gadget_rx_started;
 	bool			gadget_rx_paused;
 	bool			gadget_rx_resetting;

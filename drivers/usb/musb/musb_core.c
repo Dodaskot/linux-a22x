@@ -2814,15 +2814,26 @@ static int musb_suspend(struct device *dev)
 	}
 
 	musb_gadget_rx_work_suspend(musb);
-	musb_platform_disable(musb);
-	musb_disable_interrupts(musb);
+	/*
+	 * A connected peripheral whose controller may wake the system keeps its
+	 * session, pull-up and interrupts: the host sees no disconnect, and its
+	 * traffic wakes the system. Clocks and PHY stay on with wakeup anyway.
+	 */
+	musb->link_kept = musb->keep_link_in_sleep && is_peripheral_active(musb) &&
+			  device_may_wakeup(dev) && musb->gadget_driver &&
+			  musb->g.speed != USB_SPEED_UNKNOWN &&
+			  (musb_readb(musb->mregs, MUSB_DEVCTL) & MUSB_DEVCTL_SESSION);
+	if (!musb->link_kept) {
+		musb_platform_disable(musb);
+		musb_disable_interrupts(musb);
+	}
 
 	musb->flush_irq_work = true;
 	while (flush_delayed_work(&musb->irq_work))
 		;
 	musb->flush_irq_work = false;
 
-	if (!(musb->ops->quirks & MUSB_PRESERVE_SESSION))
+	if (!musb->link_kept && !(musb->ops->quirks & MUSB_PRESERVE_SESSION))
 		musb_writeb(musb->mregs, MUSB_DEVCTL, 0);
 
 	WARN_ON(!list_empty(&musb->pending_list));
@@ -2863,6 +2874,10 @@ static int musb_resume(struct device *dev)
 	 * unconditionally.
 	 */
 
+	/* Nothing was turned off when the link was kept: no context to restore. */
+	if (musb->link_kept)
+		goto resume_work;
+
 	musb_restore_context(musb);
 
 	devctl = musb_readb(musb->mregs, MUSB_DEVCTL);
@@ -2880,6 +2895,7 @@ static int musb_resume(struct device *dev)
 		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
 	}
 
+resume_work:
 	spin_lock_irqsave(&musb->lock, flags);
 	error = musb_run_resume_work(musb);
 	if (error)
