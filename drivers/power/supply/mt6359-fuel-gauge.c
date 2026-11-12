@@ -58,6 +58,8 @@
 #define RTC_PROT_UNLOCK1		0x586a
 #define RTC_PROT_UNLOCK2		0x9136
 #define RTC_BBPU_CBUSY			BIT(6)
+#define RTC_BBPU_RELOAD			BIT(5)
+#define RTC_BBPU_KEY			0x4300
 #define RTC_AL_HOU_FG_MASK		GENMASK(15, 8)
 #define RTC_FG_SOC_VALID		BIT(7)
 #define RTC_FG_SOC_MASK			GENMASK(6, 0)
@@ -318,8 +320,22 @@ static void mt6359_fg_store_capacity(struct mt6359_fg *fg, int cap)
 	if (fg->rtc_error)
 		return;
 	regmap_read(fg->regmap, MT6359_RTC_AL_HOU, &back);
-	if (fg->stored < 0)
-		dev_info(fg->dev, "kept %d%% in the RTC, which reads %#x\n", cap, back);
+	if (fg->stored < 0) {
+		unsigned int bbpu = 0, core = 0;
+
+		/*
+		 * What reads back is the write buffer. A reload brings the
+		 * registers of the RTC core into it (the vendor's rtc_reload):
+		 * what reads then is what a restart will find.
+		 */
+		regmap_read(fg->regmap, MT6359_RTC_BBPU, &bbpu);
+		regmap_write(fg->regmap, MT6359_RTC_BBPU,
+			     (bbpu & 0xff) | RTC_BBPU_KEY | RTC_BBPU_RELOAD);
+		mt6359_fg_rtc_trigger(fg);
+		regmap_read(fg->regmap, MT6359_RTC_AL_HOU, &core);
+		dev_info(fg->dev, "kept %d%% in the RTC: reads %#x, after a reload %#x (BBPU %#x)\n",
+			 cap, back, core, bbpu);
+	}
 	fg->stored = cap;
 }
 
