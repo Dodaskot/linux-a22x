@@ -12,13 +12,10 @@
  * One reading of the voltage under the load of a starting system is a poor
  * witness: between 20 % and 50 % the curve of this cell rises 3 mV per percent,
  * so 100 mV of sag is 30 points (seen: 15 % shown at 3.79 V, which is 30 %).
- * Two things mend that. The percent that Android's gauge keeps in the RTC
- * domain of the PMIC is taken as the start while the voltage does not
- * contradict it. This driver does not write it: on SM-A226B a write to
- * RTC_AL_HOU from here read back, yet never reached the RTC's core (a reload of
- * the registers showed the old value at once; an alarm hour set through the RTC
- * driver did not hold over a restart either, while the time did). So the number
- * may be days old, and the voltage has the last word. And while little current flows, the
+ * Two things mend that. The state of charge that was last shown is kept where
+ * Android's gauge keeps its own, in the RTC domain of the PMIC, and is taken
+ * as the start while the voltage does not contradict it; every system on the
+ * phone then goes on from the same number. And while little current flows, the
  * count is drawn one percent per poll towards the smoothed OCV estimate. A cell
  * that is drained for minutes sags more than its resistance explains, and one
  * that is charged stands higher (seen: ten points in six minutes at 0.2-0.5 A),
@@ -50,12 +47,23 @@
 #define MT6359_FGADC_CUR_CON0		0xd8a
 
 /*
- * The state of charge the user was last shown: RTC_AL_HOU[15:8], bit 7 valid,
- * bits 6:0 percent (vendor mt6359_gauge.c fgauge_set_rtc_ui_soc, RTC_FGSOC).
- * The low byte is the alarm hour of the RTC driver and is never touched here.
+ * The state of charge the user was last shown: RTC_AL_MTH[15:8], bit 7 valid,
+ * bits 6:0 percent. The vendor calls the byte spare3: its mtk_rtc_hal.c has
+ * rtc_spare_reg[RTC_FGSOC] = { RTC_AL_MTH, 0xff, 8 }, and mt6359_gauge.c reads
+ * and writes it in fgauge_get_rtc_ui_soc and fgauge_set_rtc_ui_soc. The low
+ * byte is the alarm month of the RTC driver and is never touched here.
+ *
+ * It is not RTC_AL_HOU[15:8], though a comment in the vendor's
+ * mtk_rtc_common.c says so and earlier versions of this driver believed it.
+ * That byte is the vendor's spare0, the status of the battery plug-out
+ * detection: it reads 0xe0 on SM-A226B and takes no value written to it,
+ * which looked like an RTC that refused every write.
  */
-#define MT6359_RTC_AL_HOU		0x5a4
-#define RTC_AL_HOU_FG_MASK		GENMASK(15, 8)
+#define MT6359_RTC_BBPU			0x588
+#define MT6359_RTC_AL_MTH		0x5aa
+#define MT6359_RTC_WRTGR		0x5c2
+#define RTC_BBPU_CBUSY			BIT(6)
+#define RTC_AL_MTH_FG_MASK		GENMASK(15, 8)
 #define RTC_FG_SOC_VALID		BIT(7)
 #define RTC_FG_SOC_MASK			GENMASK(6, 0)
 
@@ -71,7 +79,7 @@
 #define FG_POLL_INTERVAL		(30 * HZ)
 #define FG_LOW_OCV_CAPACITY		15	/* % below which OCV is trusted */
 #define FG_LOW_MAX_ERROR		5	/* % allowed above the OCV estimate */
-#define FG_STORED_MAX_UV		30000	/* the stored charge may lie this far from the voltage */
+#define FG_STORED_MAX_UV		70000	/* the stored charge may lie this far from the voltage */
 #define FG_RELAXED_UA			400000	/* below this the OCV estimate is heard */
 #define FG_OCV_SETTLE			4	/* OCV readings before any correction */
 #define FG_OCV_APART			4	/* % apart at rest before the count is corrected */
@@ -96,7 +104,8 @@ struct mt6359_fg {
 	bool anchored;
 	int ocv_avg;			/* smoothed OCV estimate, percent * 16 */
 	unsigned int ocv_samples;
-	unsigned int stored_raw;	/* RTC_AL_HOU as it was found */
+	unsigned int stored_raw;	/* RTC_AL_MTH as it was found */
+	int rtc_error;			/* what the last write to the RTC ended with */
 	int start_cap;			/* percent the count began at, -1: not yet */
 	int start_ocv;			/* what the voltage said then */
 	bool start_stored;		/* it began at the stored percent */
@@ -242,12 +251,12 @@ static int mt6359_fg_anchor(struct mt6359_fg *fg, int capacity)
 static int mt6359_fg_stored_capacity(struct mt6359_fg *fg, int *cap)
 {
 	unsigned int val;
-	int ret = regmap_read(fg->regmap, MT6359_RTC_AL_HOU, &val);
+	int ret = regmap_read(fg->regmap, MT6359_RTC_AL_MTH, &val);
 
 	if (ret)
 		return ret;
 	fg->stored_raw = val;
-	val = FIELD_GET(RTC_AL_HOU_FG_MASK, val);
+	val = FIELD_GET(RTC_AL_MTH_FG_MASK, val);
 	if (!(val & RTC_FG_SOC_VALID) || !(val & RTC_FG_SOC_MASK) ||
 	    (val & RTC_FG_SOC_MASK) > 100)
 		return -ENODATA;
@@ -255,10 +264,41 @@ static int mt6359_fg_stored_capacity(struct mt6359_fg *fg, int *cap)
 	return 0;
 }
 
+/*
+ * What is shown is written back, so that Android's gauge and the next start of
+ * any system go on from it. A write to the RTC's registers takes effect with
+ * the write trigger, as in the RTC driver. The register is read first: that
+ * driver rewrites it with the alarm month from a copy it read earlier, so a
+ * store that fell between its read and its write is made again at the next
+ * poll.
+ */
+static void mt6359_fg_store_capacity(struct mt6359_fg *fg, int cap)
+{
+	unsigned int val, busy, want;
+
+	want = RTC_FG_SOC_VALID | clamp(cap, 1, 100);	/* 0 reads as "nothing stored" */
+	fg->rtc_error = regmap_read(fg->regmap, MT6359_RTC_AL_MTH, &val);
+	if (fg->rtc_error || FIELD_GET(RTC_AL_MTH_FG_MASK, val) == want)
+		return;
+	fg->rtc_error = regmap_update_bits(fg->regmap, MT6359_RTC_AL_MTH,
+					   RTC_AL_MTH_FG_MASK,
+					   FIELD_PREP(RTC_AL_MTH_FG_MASK, want));
+	if (!fg->rtc_error)
+		fg->rtc_error = regmap_write(fg->regmap, MT6359_RTC_WRTGR, 1);
+	if (!fg->rtc_error)
+		fg->rtc_error = regmap_read_poll_timeout(fg->regmap, MT6359_RTC_BBPU,
+							 busy, !(busy & RTC_BBPU_CBUSY),
+							 200, 500000);
+	if (fg->rtc_error)
+		dev_warn_ratelimited(fg->dev, "the charge was not kept in the RTC: %d\n",
+				     fg->rtc_error);
+}
+
 static int mt6359_fg_charge_now(struct mt6359_fg *fg, s64 *uah)
 {
 	s64 car;
-	int ret, cap, stored, uv = 0;
+	int ret, cap, ocv, stored, uv = 0;
+	bool kept;
 
 	if (!fg->anchored) {
 		ret = mt6359_fg_ocv_capacity(fg, &cap);
@@ -268,27 +308,32 @@ static int mt6359_fg_charge_now(struct mt6359_fg *fg, s64 *uah)
 		 * What was last shown is the better start while the voltage
 		 * does not contradict it. How far the two may lie apart is
 		 * measured in volts, not in percent: in the flat middle of the
-		 * curve 30 mV are ten points, near its ends two. Only Android
-		 * writes that percent (see the head of this file), so it may be
-		 * days old (seen: 96 % kept, 3.97 V measured, which is 66 %).
+		 * curve 70 mV are twenty points, near its ends three. A system
+		 * whose kernel does not write its percent there leaves an old
+		 * one behind.
 		 */
-		if (!ret && !mt6359_fg_stored_capacity(fg, &stored) &&
-		    abs(mt6359_fg_capacity_uv(fg, stored) - uv) <= FG_STORED_MAX_UV) {
-			dev_info(fg->dev, "start from the stored %d%% (OCV says %d%%)\n",
-				 stored, cap);
-			fg->start_ocv = cap;
-			fg->start_stored = true;
-			cap = stored;
-		} else if (!ret) {
-			fg->start_ocv = cap;
-			dev_info(fg->dev, "start from OCV at %d%% (the RTC keeps %#x)\n",
-				 cap, fg->stored_raw);
-		}
-		if (!ret)
-			ret = mt6359_fg_anchor(fg, cap);
 		if (ret)
 			return ret;
+		ocv = cap;
+		kept = !mt6359_fg_stored_capacity(fg, &stored) &&
+		       abs(mt6359_fg_capacity_uv(fg, stored) - uv) <= FG_STORED_MAX_UV;
+		if (kept)
+			cap = stored;
+		ret = mt6359_fg_anchor(fg, cap);
+		if (ret) {
+			/* the counter does not always answer the first time after a start */
+			dev_dbg(fg->dev, "the charge counter was not read: %d\n", ret);
+			return ret;
+		}
+		if (kept)
+			dev_info(fg->dev, "start from the stored %d%% (OCV says %d%%)\n",
+				 cap, ocv);
+		else
+			dev_info(fg->dev, "start from OCV at %d%% (the RTC keeps %#x)\n",
+				 cap, fg->stored_raw);
 		fg->start_cap = cap;
+		fg->start_ocv = ocv;
+		fg->start_stored = kept;
 	}
 	ret = mt6359_fg_car_uah(fg, &car);
 	if (ret)
@@ -356,6 +401,10 @@ static void mt6359_fg_work(struct work_struct *work)
 				mt6359_fg_anchor(fg, max(cap - 1, 0));
 		}
 	}
+
+	if (!mt6359_fg_charge_now(fg, &uah))
+		mt6359_fg_store_capacity(fg, div_s64(uah * 100 + fg->full_uah / 2,
+						     fg->full_uah));
 
 	power_supply_changed(fg->psy);
 	/* freezable: no wakeups (and no ADC reads) while the system sleeps */
@@ -472,9 +521,9 @@ static ssize_t soc_start_show(struct device *dev, struct device_attribute *attr,
 
 	if (!fg || fg->start_cap < 0)
 		return sysfs_emit(buf, "none\n");
-	return sysfs_emit(buf, "%s %d %d found=%#x\n",
+	return sysfs_emit(buf, "%s %d %d found=%#x error=%d\n",
 			  fg->start_stored ? "stored" : "ocv", fg->start_cap,
-			  fg->start_ocv, fg->stored_raw);
+			  fg->start_ocv, fg->stored_raw, fg->rtc_error);
 }
 static DEVICE_ATTR_RO(soc_start);
 
