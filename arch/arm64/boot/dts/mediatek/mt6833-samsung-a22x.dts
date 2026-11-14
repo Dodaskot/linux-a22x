@@ -46,7 +46,7 @@
 		ranges;
 		stdout-path = "serial0:921600n8";
 		/* Select the FT8722 variant in both SPI touch drivers. */
-		bootargs = "console=ttyS0,921600n8 ft8722_fhdp_wt_dsi_vdo_cphy_90hz_truly";
+		bootargs = "console=ttyS0,921600n8";
 
 		framebuffer@7c9b0000 {
 			compatible = "simple-framebuffer";

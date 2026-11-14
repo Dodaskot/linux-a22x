@@ -32,20 +32,9 @@ static struct drm_panel_follower hx_panel_follower;
 static bool hx_follows_panel;
 struct device *g_device;
 
-static bool himax_ft8722_panel_selected(void)
-{
-	return saved_command_line &&
-	       strstr(saved_command_line,
-		      "ft8722_fhdp_wt_dsi_vdo_cphy_90hz_truly");
-}
-
 static bool himax_panel_selected(void)
 {
 	if (!saved_command_line)
-		return false;
-
-	if (strstr(saved_command_line,
-		   "ft8722_fhdp_wt_dsi_vdo_cphy_90hz_truly"))
 		return false;
 
 	return strstr(saved_command_line, "hx83112f") ||
@@ -280,7 +269,7 @@ static int himax_hx83112f_probe(struct spi_device *spi)
 	struct himax_ts_data *ts;
 	int ret;
 
-	if (himax_ft8722_panel_selected() || !himax_panel_selected()) {
+	if (!himax_panel_selected()) {
 		dev_info(&spi->dev, "skipping HX83112F for non-Himax panel\n");
 		return -ENODEV;
 	}

@@ -112,9 +112,20 @@ static int ft8722_spi_sync_buf(struct ft8722_ts *ts, const u8 *tx, u8 *rx,
 
 static bool ft8722_panel_selected(void)
 {
-	return saved_command_line &&
-	       strstr(saved_command_line,
-		      "ft8722_fhdp_wt_dsi_vdo_cphy_90hz_truly");
+	if (!saved_command_line ||
+	    !strstr(saved_command_line,
+		    "ft8722_fhdp_wt_dsi_vdo_cphy_90hz_truly"))
+		return false;
+
+	/*
+	 * Some boot flows append panel candidates to the command line. Prefer
+	 * a recognized Himax panel when both markers are present.
+	 */
+	if (strstr(saved_command_line, "hx83112f") ||
+	    strstr(saved_command_line, "himax"))
+		return false;
+
+	return true;
 }
 
 static u16 ft8722_crc_kermit(const u8 *data, size_t len)
