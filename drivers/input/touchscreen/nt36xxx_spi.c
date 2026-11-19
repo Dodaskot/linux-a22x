@@ -95,10 +95,12 @@ static int nt36xxx_spi_read(void *dev, const void *reg_buf,
                                   size_t val_size)
 {
 	struct spi_device *spi = to_spi_device(dev);
+	static unsigned int logged_large_reads;
+	struct spi_transfer xfer[2] = { };
 	int ret, retry;
 	u32 reg;
 	u8 addr[4];
-	u8 *rx;
+	u8 *buf;
 
 	if (reg_size != sizeof(reg))
 		return -EINVAL;
@@ -108,28 +110,51 @@ static int nt36xxx_spi_read(void *dev, const void *reg_buf,
 	addr[2] = reg >> 7;
 	addr[3] = reg & 0x7f;
 
-	/* NT36675 returns one dummy byte after the read command. The Samsung
-	 * 4.14 SPI driver discards rbuf[0] (command) and rbuf[1] (dummy);
-	 * spi_write_then_read() has already separated the command from RX. */
+	/*
+	 * NT36675 returns one dummy byte after the read command; the Samsung
+	 * 4.14 SPI driver discards rbuf[0] (command) and rbuf[1] (dummy).
+	 *
+	 * The data transfer must start on a 4-byte boundary: the MediaTek SPI
+	 * controller only uses DMA for longer transfers with aligned buffers,
+	 * and its multi-round FIFO path returned stale bytes for 65-byte touch
+	 * frames on a real A22x (small reads were correct). The Himax driver on
+	 * the same controller reads full duplex from one aligned buffer, so do
+	 * the same: buf[0] command, buf[4] dummy, buf[5..] data.
+	 */
 	if (val_size >= NT36XXX_TRANSFER_LEN + 8)
 		return -EINVAL;
-	rx = kmalloc(val_size + 1, GFP_KERNEL | GFP_DMA);
-	if (!rx)
+	buf = kmalloc(4 + 1 + val_size, GFP_KERNEL | GFP_DMA);
+	if (!buf)
 		return -ENOMEM;
+	buf[0] = addr[3];
+	xfer[0].tx_buf = buf;
+	xfer[0].len = 1;
+	xfer[1].tx_buf = buf + 4;
+	xfer[1].rx_buf = buf + 4;
+	xfer[1].len = 1 + val_size;
+
 	for (retry = 0; retry < NT36XXX_SPI_RETRIES; retry++) {
+		memset(buf + 4, 0, 1 + val_size);
 		ret = spi_write(spi, addr, 3);
 		if (!ret)
-			ret = spi_write_then_read(spi, &addr[3], 1, rx, val_size + 1);
+			ret = spi_sync_transfer(spi, xfer, ARRAY_SIZE(xfer));
 		if (!ret)
 			break;
 	}
 	if (ret) {
 		dev_err(dev, "read 0x%06x failed: %d\n", reg, ret);
-		kfree(rx);
+		kfree(buf);
 		return ret;
 	}
-	memcpy(val_buf, rx + 1, val_size);
-	kfree(rx);
+	memcpy(val_buf, buf + 5, val_size);
+
+	/* Bring-up aid: the dummy byte and the head of the first long reads. */
+	if (val_size > 32 && logged_large_reads < 3) {
+		logged_large_reads++;
+		dev_info(dev, "read 0x%06x len %zu dummy 0x%02x data %8ph\n",
+			 reg, val_size, buf[4], buf + 5);
+	}
+	kfree(buf);
 
 	if (DEBUG) {
 		print_hex_dump(KERN_INFO, __func__, DUMP_PREFIX_OFFSET,
