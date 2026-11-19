@@ -30,8 +30,22 @@
 #define TOUCH_MAX_FINGER_NUM	 10
 #define TOUCH_MAX_PRESSURE	 1000
 
-/* Point data length */
+/*
+ * Touch frame read from EVENT_BUF. Offsets below are relative to the first
+ * returned data byte (the SPI transport consumes the command and the dummy
+ * byte); the vendor driver's buf[n] is data[n - 1] here.
+ *   data[6*i .. 6*i+5]  slot i: id<<3|status, x[11:4], y[11:4],
+ *                       x[3:0]<<4|y[3:0], width, pressure[7:0]
+ *   data[61], data[62]  pressure[15:8] of slots 0 and 1
+ *   data[64]            two's complement checksum of data[0..63]
+ */
 #define POINT_DATA_LEN		65
+#define POINT_DATA_CHECKSUM_LEN	65
+#define NT36XXX_WDT_FRAMES	10
+
+/* Trim ID locations: new chips first, then the pre-NT36672C address. */
+#define NT36XXX_CHIP_VER_TRIM_ADDR	0x3F004
+#define NT36XXX_CHIP_VER_TRIM_OLD_ADDR	0x1F64E
 
 /* Misc */
 #define NT36XXX_NUM_SUPPLIES	 4
@@ -121,6 +135,10 @@ struct nt36xxx_chip_data {
 	unsigned int abs_y_max;
 	unsigned int max_button;
 	const struct input_id *id;
+	/* Expected trim family; 0 accepts any table entry. */
+	enum nt36xxx_chips chip;
+	/* Board-proven trigger; 0 keeps the devicetree trigger. */
+	unsigned long irq_trigger;
 };
 
 struct nt36xxx_trim_table {

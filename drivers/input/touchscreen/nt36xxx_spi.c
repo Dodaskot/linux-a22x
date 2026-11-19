@@ -9,6 +9,7 @@
  * Based on goodix_ts_berlin driver.
  */
 #include <linux/input.h>
+#include <linux/interrupt.h>
 #include <linux/input/touchscreen.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -136,7 +137,7 @@ static int nt36xxx_spi_read(void *dev, const void *reg_buf,
 	return ret;
 }
 
-const struct regmap_config nt36xxx_regmap_config_32bit = {
+static const struct regmap_config nt36xxx_regmap_config_32bit = {
 	.name = "nt36xxx_hw",
 	.reg_bits = 32,
 	.val_bits = 8,
@@ -200,7 +201,7 @@ static int nt36xxx_spi_probe(struct spi_device *spi)
 				   &nt36xxx_spi_input_id, regmap);
 }
 
-const struct nt36xxx_chip_data default_config = {
+static const struct nt36xxx_chip_data default_config = {
 	.config = &nt36xxx_regmap_config_32bit,
 	.mmap = nt36676f_memory_maps,
 	.max_x = 1080,
@@ -210,7 +211,7 @@ const struct nt36xxx_chip_data default_config = {
 	.id = &nt36xxx_spi_input_id,
 };
 
-const struct nt36xxx_chip_data miatoll_tianma_nt36675 = {
+static const struct nt36xxx_chip_data miatoll_tianma_nt36675 = {
 	.config = &nt36xxx_regmap_config_32bit,
 	.mmap = nt36675_memory_maps,
 	.fw_name = "novatek_ts_tianma_fw.bin",
@@ -221,7 +222,12 @@ const struct nt36xxx_chip_data miatoll_tianma_nt36675 = {
 	.id = &nt36xxx_spi_input_id,
 };
 
-/* A22 5G: trim ID 0c:00:00:72:66:03, Tianma NT36675, 1080x2408. */
+/*
+ * A22 5G Tianma NT36672C TDDI: trim ID 0c:00:00:72:66:03 selects the NT36675
+ * memory map with hardware CRC in the stock driver. Stock DT and the
+ * reporter's probe log use irq flags 0x2001 (rising edge | oneshot); the
+ * shared DT node carries Himax's falling-edge trigger.
+ */
 static const struct nt36xxx_chip_data samsung_a22x_nt36675 = {
 	.config = &nt36xxx_regmap_config_32bit,
 	.mmap = nt36675_memory_maps,
@@ -231,9 +237,11 @@ static const struct nt36xxx_chip_data samsung_a22x_nt36675 = {
 	.abs_x_max = 1080,
 	.abs_y_max = 2408,
 	.id = &nt36xxx_spi_input_id,
+	.chip = NT36675_IC,
+	.irq_trigger = IRQF_TRIGGER_RISING,
 };
 
-const struct nt36xxx_chip_data generic_nt36676f = {
+static const struct nt36xxx_chip_data generic_nt36676f = {
 	.config = &nt36xxx_regmap_config_32bit,
 	.mmap = nt36676f_memory_maps,
 	.max_x = 1080,
@@ -243,7 +251,7 @@ const struct nt36xxx_chip_data generic_nt36676f = {
 	.id = &nt36xxx_spi_input_id,
 };
 
-const struct nt36xxx_chip_data generic_nt36772 = {
+static const struct nt36xxx_chip_data generic_nt36772 = {
 	.config = &nt36xxx_regmap_config_32bit,
 	.mmap = nt36772_memory_maps,
 	.max_x = 1080,
@@ -253,7 +261,7 @@ const struct nt36xxx_chip_data generic_nt36772 = {
 	.id = &nt36xxx_spi_input_id,
 };
 
-const struct nt36xxx_chip_data generic_nt36525 = {
+static const struct nt36xxx_chip_data generic_nt36525 = {
 	.config = &nt36xxx_regmap_config_32bit,
 	.mmap = nt36525_memory_maps,
 	.max_x = 1080,

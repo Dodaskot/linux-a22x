@@ -21,7 +21,6 @@
 #include <linux/irqnr.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
-#include <linux/pm_runtime.h>
 #include <linux/printk.h>
 #include <linux/property.h>
 #include <linux/regmap.h>
@@ -104,6 +103,8 @@ struct nt36xxx_ts {
 	struct drm_panel_follower panel_follower;
 
 	struct delayed_work work;
+	unsigned int download_attempts;
+	unsigned int wdt_frames;
 
 	/* this is a duplicate with nt36xxx_chip_data and since the address might
 	 * change in boot/init/download stages so make it a copy of initial map and
@@ -363,8 +364,8 @@ const u32 nt36525_memory_maps[] = {
 	[MMAP_TOP_ADDR] = 0xffffff,
 };
 
-void __maybe_unused _debug_irq(struct nt36xxx_ts *ts, int line);
-void __maybe_unused __weak _debug_irq(struct nt36xxx_ts *ts, int line) {
+static void __maybe_unused _debug_irq(struct nt36xxx_ts *ts, int line)
+{
         struct irq_desc *desc;
         desc = irq_data_to_desc( irq_get_irq_data(ts->irq));
         dev_info(ts->dev, "%d irq_desc depth=%d", line, desc->depth );
@@ -375,11 +376,6 @@ void __maybe_unused __weak _debug_irq(struct nt36xxx_ts *ts, int line) {
 static int nt36xxx_eng_reset_idle(struct nt36xxx_ts *ts)
 {
 	int ret;
-
-	if(!ts) {
-		dev_err(ts->dev, "%s %s empty", __func__, "nt36xxx_ts");
-		return -EINVAL;
-	}
 
 	if (ts->status & NT36XXX_STATUS_SUSPEND)
 		return -EIO;
@@ -456,30 +452,45 @@ static int nt36xxx_bootloader_reset(struct nt36xxx_ts *ts)
 static int nt36xxx_check_reset_state(struct nt36xxx_ts *ts,
 				     enum nt36xxx_fw_state fw_state)
 {
-	u8 buf[8] = { 0 };
+	u8 state = 0;
 	int ret = 0, retry = NT36XXX_MAX_FW_RST_RETRY;
 
 	do {
 		if (ts->status & NT36XXX_STATUS_SUSPEND)
 			return -EIO;
 
+		/* data[0] is the byte at EVENT_BUF + 0x60 (vendor buf[1]). */
 		ret = regmap_raw_read(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR]
-				 | NT36XXX_EVT_RESET_COMPLETE, buf, 6);
-		if (likely(ret == 0) &&
-		    (buf[1] >= fw_state) &&
-		    (buf[1] <= NT36XXX_STATE_MAX)) {
-			ret = 0;
-			break;
-		}
+				 | NT36XXX_EVT_RESET_COMPLETE, &state, 1);
+		if (!ret && state >= fw_state && state <= NT36XXX_STATE_MAX)
+			return 0;
 		usleep_range(10000, 11000);
 	} while (--retry);
 
-	if (!retry) {
-		dev_err(ts->dev, "Firmware reset failed.\n");
-		ret = -EBUSY;
-	}
+	dev_err(ts->dev, "Firmware reset failed: state 0x%02x, ret %d\n",
+		state, ret);
+	return -EBUSY;
+}
 
-	return ret;
+static bool nt36xxx_bytes_all(const u8 *buf, size_t len, u8 a, u8 b)
+{
+	size_t i;
+
+	for (i = 0; i < len; i++)
+		if (buf[i] != a && buf[i] != b)
+			return false;
+	return true;
+}
+
+/* Vendor nvt_ts_point_data_checksum(): two's complement of data[0..63]. */
+static bool nt36xxx_point_checksum_ok(const u8 *data)
+{
+	u8 sum = 0;
+	int i;
+
+	for (i = 0; i < POINT_DATA_CHECKSUM_LEN - 1; i++)
+		sum += data[i];
+	return (u8)(~sum + 1) == data[POINT_DATA_CHECKSUM_LEN - 1];
 }
 
 /**
@@ -492,9 +503,7 @@ static void nt36xxx_report(struct nt36xxx_ts *ts)
 {
 	struct nt36xxx_abs_object *obj = &ts->abs_obj;
 	struct input_dev *input = ts->input;
-	u8 input_id = 0;
-	u8 point[POINT_DATA_LEN + 1] = { 0 };
-	unsigned int ppos = 0;
+	u8 point[POINT_DATA_LEN];
 	int i, ret;
 
 	if (ts->status & NT36XXX_STATUS_SUSPEND)
@@ -503,77 +512,85 @@ static void nt36xxx_report(struct nt36xxx_ts *ts)
 	ret = regmap_raw_read(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR],
 				point, sizeof(point));
 	if (ret < 0) {
-		dev_err(ts->dev,
-			"Cannot read touch point data: %d\n", ret);
-		goto xfer_error;
+		dev_err_ratelimited(ts->dev,
+				    "Cannot read touch point data: %d\n", ret);
+		return;
 	}
 
-	/* wdt recovery and esd check */
-	for (i = 0; i < 7; i++) {
-		if ((point[i] != 0xFD) && (point[i] != 0xFE) && (point[i] != 0x77))
-			break;
+	/*
+	 * Vendor nvt_wdt_fw_recovery(): data[0..5] all 0xFD/0xFE. The firmware
+	 * is reloaded only after more than NT36XXX_WDT_FRAMES consecutive
+	 * watchdog frames; a non-watchdog frame resets the count.
+	 */
+	if (nt36xxx_bytes_all(point, 6, 0xFD, 0xFE)) {
+		if (++ts->wdt_frames > NT36XXX_WDT_FRAMES) {
+			ts->wdt_frames = 0;
+			mutex_lock(&ts->lock);
+			ts->status |= NT36XXX_STATUS_DOWNLOAD_RECOVER;
+			mutex_unlock(&ts->lock);
+		}
+		return;
 	}
-	/* A single legal/garbled point byte must not trigger a destructive
-	 * firmware reload: only a complete ESD watchdog pattern does. */
-	if (i == 7) {
-		mutex_lock(&ts->lock);
-		ts->status |= NT36XXX_STATUS_DOWNLOAD_RECOVER;
-		mutex_unlock(&ts->lock);
-		goto xfer_error;
+	ts->wdt_frames = 0;
+
+	/* ESD pattern: the stock driver drops it without other action. */
+	if (nt36xxx_bytes_all(point, 6, 0x77, 0x77))
+		return;
+
+	if (!nt36xxx_point_checksum_ok(point)) {
+		dev_dbg_ratelimited(ts->dev, "touch frame checksum mismatch\n");
+		return;
 	}
 
 	for (i = 0; i < TOUCH_MAX_FINGER_NUM; i++) {
-		ppos = 6 * i + 1;
-		input_id = point[ppos + 0] >> 3;
+		const u8 *p = &point[6 * i];
+		u8 input_id = p[0] >> 3;
+		u8 status = p[0] & 0x07;
+		int tool;
 
-		if ((input_id == 0) || (input_id > TOUCH_MAX_FINGER_NUM)) {
+		if (input_id == 0 || input_id > TOUCH_MAX_FINGER_NUM)
+			continue;
+
+		/* 1 enter, 2 move, 6 glove; 5 palm and 7 metal jig are
+		 * contacts the stock driver flags through ABS_MT_CUSTOM. */
+		switch (status) {
+		case 0x01:
+		case 0x02:
+		case 0x06:
+			tool = MT_TOOL_FINGER;
+			break;
+		case 0x05:
+		case 0x07:
+			tool = MT_TOOL_PALM;
+			break;
+		default:
 			continue;
 		}
 
-		if (((point[ppos] & 0x07) == 0x01) ||
-		    ((point[ppos] & 0x07) == 0x02)) {
-			obj->x = (point[ppos + 1] << 4) +
-				 (point[ppos + 3] >> 4);
-			obj->y = (point[ppos + 2] << 4) +
-				 (point[ppos + 3] & 0xf);
+		obj->x = (p[1] << 4) | (p[3] >> 4);
+		obj->y = (p[2] << 4) | (p[3] & 0x0f);
+		if (obj->x > ts->prop.max_x || obj->y > ts->prop.max_y)
+			continue;
 
-			if ((obj->x > ts->prop.max_x) ||
-			    (obj->y > ts->prop.max_y))
-				continue;
+		obj->tm = p[4] ? p[4] : 1;
 
-			obj->tm = point[ppos + 4];
-			if (obj->tm == 0)
-				obj->tm = 1;
+		obj->z = p[5];
+		if (i < 2)
+			obj->z += point[61 + i] << 8;
+		if (obj->z > TOUCH_MAX_PRESSURE)
+			obj->z = TOUCH_MAX_PRESSURE;
+		if (obj->z == 0)
+			obj->z = 1;
 
-			obj->z = point[ppos + 5];
-			if (i < 2) {
-				obj->z += point[i + 63] << 8;
-				if (obj->z > TOUCH_MAX_PRESSURE)
-					obj->z = TOUCH_MAX_PRESSURE;
-			}
-
-			if (obj->z == 0)
-				obj->z = 1;
-
-			input_mt_slot(input, input_id - 1);
-			input_mt_report_slot_state(input,
-						   MT_TOOL_FINGER, true);
-			touchscreen_report_pos(input, &ts->prop,
-						obj->x,
-						obj->y, true);
-
-			input_report_abs(input, ABS_MT_TOUCH_MAJOR, obj->tm);
-			input_report_abs(input, ABS_MT_PRESSURE, obj->z);
-
-		}
+		input_mt_slot(input, input_id - 1);
+		input_mt_report_slot_state(input, tool, true);
+		touchscreen_report_pos(input, &ts->prop, obj->x, obj->y, true);
+		input_report_abs(input, ABS_MT_TOUCH_MAJOR, obj->tm);
+		input_report_abs(input, ABS_MT_PRESSURE, obj->z);
 	}
 
 	input_mt_sync_frame(input);
-
 	input_sync(input);
-
-xfer_error:
-	return;
 }
 
 static irqreturn_t nt36xxx_irq_handler(int irq, void *dev_id)
@@ -586,95 +603,105 @@ static irqreturn_t nt36xxx_irq_handler(int irq, void *dev_id)
 	if (ts->status & NT36XXX_STATUS_SUSPEND)
 		goto exit;
 
-	disable_irq_nosync(ts->irq);
-
+	/* IRQF_ONESHOT keeps the line masked until this thread returns. */
 	nt36xxx_report(ts);
-
-	enable_irq(ts->irq);
 
 exit:
 	if (ts->status & NT36XXX_STATUS_DOWNLOAD_RECOVER) {
+		/* The completed-download flag would otherwise make the work
+		 * return without reloading the firmware. */
 		mutex_lock(&ts->lock);
-		ts->status &= ~NT36XXX_STATUS_DOWNLOAD_RECOVER;
+		ts->status &= ~(NT36XXX_STATUS_DOWNLOAD_RECOVER |
+				NT36XXX_STATUS_DOWNLOAD_COMPLETE);
+		ts->download_attempts = 0;
 		mutex_unlock(&ts->lock);
-		/* TODO: other builtin eeprom model might have another reset
-		 * approach other than download, might add here afterward */
-		if (ts->fw_name)
-			schedule_delayed_work(&ts->work, 40000);
+		if (ts->fw_name) {
+			dev_warn(ts->dev, "watchdog frames: reloading firmware\n");
+			schedule_delayed_work(&ts->work, 0);
+		}
 	}
 
 	return IRQ_HANDLED;
 }
 
 
+static const struct nt36xxx_trim_table *nt36xxx_match_trim(const u8 *id)
+{
+	const struct nt36xxx_trim_table *t;
+	int i;
+
+	for (t = trim_id_table; t->mapid; t++) {
+		for (i = 0; i < NT36XXX_ID_LEN_MAX; i++)
+			if (t->mask[i] && id[i] != t->id[i])
+				break;
+		if (i == NT36XXX_ID_LEN_MAX)
+			return t;
+	}
+	return NULL;
+}
+
 /**
  * nt36xxx_chip_version_init - Detect Novatek NT36xxx family IC
  * @ts: Main driver structure
  *
- * This function reads the ChipID from the IC and sets the right
- * memory map for the detected chip.
+ * Vendor check_chip_ver_trim(): bootloader reset before every attempt, five
+ * attempts at the current trim address, then five at the old one. The bytes
+ * returned by regmap start at the trim address (vendor buf[1..6]).
  *
- * Return: Always zero for success, negative number for error
+ * Return: zero when the expected chip was identified, negative errno otherwise
  */
 static int nt36xxx_chip_version_init(struct nt36xxx_ts *ts)
 {
-	u8 buf[32] = { 0 };
-	int retry = NT36XXX_MAX_RETRIES;
-	int sz = sizeof(trim_id_table) / sizeof(struct nt36xxx_trim_table);
-	int i, list, mapid, ret;
+	static const u32 trim_addrs[] = {
+		NT36XXX_CHIP_VER_TRIM_ADDR,
+		NT36XXX_CHIP_VER_TRIM_OLD_ADDR,
+	};
+	const struct nt36xxx_trim_table *t;
+	u8 id[NT36XXX_ID_LEN_MAX];
+	int a, retry, ret = -ENODEV;
 
-	ret = nt36xxx_bootloader_reset(ts);
-	if (ret) {
-		dev_err(ts->dev, "Can't reset the nvt IC\n");
-		return ret;
+	for (a = 0; a < ARRAY_SIZE(trim_addrs); a++) {
+		for (retry = 0; retry < NT36XXX_MAX_RETRIES; retry++) {
+			ret = nt36xxx_bootloader_reset(ts);
+			if (ret) {
+				dev_err(ts->dev, "Can't reset the nvt IC: %d\n", ret);
+				return ret;
+			}
+
+			ret = regmap_raw_read(ts->regmap, trim_addrs[a], id,
+					      sizeof(id));
+			if (ret) {
+				usleep_range(10000, 11000);
+				continue;
+			}
+
+			t = nt36xxx_match_trim(id);
+			if (!t) {
+				dev_dbg(ts->dev, "trim 0x%05x attempt %d: %6ph\n",
+					trim_addrs[a], retry, id);
+				ret = -ENODEV;
+				usleep_range(10000, 11000);
+				continue;
+			}
+
+			if (ts->data->chip && t->mapid != ts->data->chip) {
+				dev_err(ts->dev, "trim %6ph is chip %d, not %d\n",
+					id, t->mapid, ts->data->chip);
+				return -ENODEV;
+			}
+			if (!t->hw_crc) {
+				dev_err(ts->dev, "trim %6ph has no hw CRC support\n", id);
+				return -ENODEV;
+			}
+
+			ts->hw_crc = t->hw_crc;
+			dev_info(ts->dev, "This is NVT touch IC, trim %6ph at 0x%05x, mapid %d\n",
+				 id, trim_addrs[a], t->mapid);
+			return 0;
+		}
 	}
 
-	do {
-		ret = regmap_raw_read(ts->regmap, ts->mmap[MMAP_MAGIC_NUMBER_0X1F64E_ADDR], buf, 7);
-
-		if (ret)
-			continue;
-
-		dev_dbg(ts->dev, "%s buf[0]=0x%02X, buf[1]=0x%02X, buf[2]=0x%02X, buf[3]=0x%02X, buf[4]=0x%02X, buf[5]=0x%02X, buf[6]=0x%02X sz=%d\n",
-			__func__, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], sz);
-
-		/* Compare read chip id with trim list */
-		for (list = 0; list < sz; list++) {
-
-			/* Compare each not masked byte */
-			for (i = 0; i < NT36XXX_ID_LEN_MAX; i++) {
-				if (trim_id_table[list].mask[i] &&
-				    buf[i + 1] != trim_id_table[list].id[i])
-					break;
-			}
-
-			/* found and match with mask */
-			if (i == NT36XXX_ID_LEN_MAX) {
-				mapid = trim_id_table[list].mapid;
-				ret = 0;
-				ts->hw_crc = trim_id_table[list].hw_crc;
-
-				if (mapid == 0) {
-					dev_info(ts->dev, "NVT touch IC hw not found i=%d list=%d\n", i, list);
-					ret = -ENOENT;
-					goto exit;
-				}
-
-				WARN(ts->hw_crc < 1, "ts->hw_crc < 1");
-
-				dev_dbg(ts->dev, "hw crc support=%d\n", ts->hw_crc);
-
-				dev_info(ts->dev, "This is NVT touch IC, %06x, mapid %d", *(int*)&buf[4], mapid);
-				return 0;
-			}
-
-			ret = -ENOENT;
-		}
-
-		usleep_range(10000, 11000);
-	} while (--retry);
-
-exit:
+	dev_info(ts->dev, "NVT trim ID not identified: %d\n", ret);
 	return ret;
 }
 
@@ -862,14 +889,11 @@ static int32_t nt36xxx_download_firmware_hw_crc(struct nt36xxx_ts *ts) {
 			int ret = regmap_bulk_write(ts->regmap, sram_addr + j, &ts->fw_entry.data[bin_addr + j],
 							 window_size);
 
-			/*
-			 * supposed this delay-queue-task and susped thread is runing parallel
-			 * so return early the better otherwise caused kernel warning and fail
-			*/
-			if ((ret < 0) || (ts->status & NT36XXX_STATUS_SUSPEND)) {
-				/* in the case of suspend, return value is not important */
-				return (int32_t)ret;
-			}
+			if (ret < 0)
+				return ret;
+			/* A panel power-down invalidates the partial upload. */
+			if (ts->status & NT36XXX_STATUS_SUSPEND)
+				return -EIO;
 		}
 
 	}
@@ -1012,44 +1036,66 @@ static int _nt36xxx_boot_download_firmware(struct nt36xxx_ts *ts) {
 		return -EIO;
 	}
 
-	/* set ilm & dlm reg bank */
+	/*
+	 * nvt_set_bld_hw_crc(): SRAM start (3 bytes), header size field
+	 * (3 bytes, bit 16 at most) and golden CRC (4 bytes), little endian.
+	 */
 	for (i = 0; i < ts->fw_data.partition; i++) {
-		if (0 == strncmp(ts->bin_map[i].name, "ILM", 3)) {
-			regmap_raw_write(ts->regmap, ts->mmap[MMAP_ILM_DES_ADDR], &ts->bin_map[i].sram_addr, 3);
-			regmap_raw_write(ts->regmap, ts->mmap[MMAP_ILM_LENGTH_ADDR], &ts->bin_map[i].size, 3);
+		struct nvt_ts_bin_map *m = &ts->bin_map[i];
+		u8 des[3], len[3], crc[4];
+		int des_reg, len_reg, crc_reg;
 
-			/* crc > 1 then len = 4, crc = 1 then len = 3 */
-			regmap_raw_write(ts->regmap, ts->mmap[MMAP_G_ILM_CHECKSUM_ADDR], &ts->bin_map[i].crc,
-						sizeof(ts->bin_map[i].crc));
+		if (!strcmp(m->name, "ILM")) {
+			des_reg = MMAP_ILM_DES_ADDR;
+			len_reg = MMAP_ILM_LENGTH_ADDR;
+			crc_reg = MMAP_G_ILM_CHECKSUM_ADDR;
+		} else if (!strcmp(m->name, "DLM")) {
+			des_reg = MMAP_DLM_DES_ADDR;
+			len_reg = MMAP_DLM_LENGTH_ADDR;
+			crc_reg = MMAP_G_DLM_CHECKSUM_ADDR;
+		} else {
+			continue;
 		}
-		if (0 == strncmp(ts->bin_map[i].name, "DLM", 3)) {
-			regmap_raw_write(ts->regmap, ts->mmap[MMAP_DLM_DES_ADDR], &ts->bin_map[i].sram_addr, 3);
-			regmap_raw_write(ts->regmap, ts->mmap[MMAP_DLM_LENGTH_ADDR], &ts->bin_map[i].size, 3);
 
-			/* crc > 1 then len = 4, crc = 1 then len = 3 */
-			regmap_raw_write(ts->regmap, ts->mmap[MMAP_G_DLM_CHECKSUM_ADDR], &ts->bin_map[i].crc,
-						sizeof(ts->bin_map[i].crc));
-		}
+		put_unaligned_le24(m->sram_addr, des);
+		len[0] = m->size;
+		len[1] = m->size >> 8;
+		len[2] = (m->size >> 16) & 0x01;
+		put_unaligned_le32(m->crc, crc);
+
+		ret = regmap_raw_write(ts->regmap, ts->mmap[des_reg], des, sizeof(des));
+		if (!ret)
+			ret = regmap_raw_write(ts->regmap, ts->mmap[len_reg], len, sizeof(len));
+		if (!ret)
+			ret = regmap_raw_write(ts->regmap, ts->mmap[crc_reg], crc, sizeof(crc));
+		if (ret)
+			return ret;
 	}
 
-	/* nvt_bld_crc_enable() */
-	/* crc enable */
-	regmap_raw_read(ts->regmap, ts->mmap[MMAP_BLD_CRC_EN_ADDR], val, 1);
+	/* nvt_bld_crc_enable(): read-modify-write bit 7. */
+	ret = regmap_raw_read(ts->regmap, ts->mmap[MMAP_BLD_CRC_EN_ADDR], val, 1);
+	if (ret)
+		return ret;
+	val[0] |= BIT(7);
+	ret = regmap_raw_write(ts->regmap, ts->mmap[MMAP_BLD_CRC_EN_ADDR], val, 1);
+	if (ret)
+		return ret;
 
-	val[0] |= 1 << 7;
-	regmap_raw_write(ts->regmap, ts->mmap[MMAP_BLD_CRC_EN_ADDR], val, 1);
-
-	/* enable fw crc */
+	/* nvt_fw_crc_enable() */
 	val[0] = 0;
-	regmap_raw_write(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR] | NT36XXX_EVT_RESET_COMPLETE, val, 1);
-
+	ret = regmap_raw_write(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR] | NT36XXX_EVT_RESET_COMPLETE, val, 1);
+	if (ret)
+		return ret;
 	val[0] = 0xae;
-	regmap_raw_write(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR] | NT36XXX_EVT_HOST_CMD, val, 1);
+	ret = regmap_raw_write(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR] | NT36XXX_EVT_HOST_CMD, val, 1);
+	if (ret)
+		return ret;
 
 	/* nvt_boot_ready() */
-	/* Set Boot Ready Bit */
 	val[0] = 0x1;
-	regmap_raw_write(ts->regmap, ts->mmap[MMAP_BOOT_RDY_ADDR], val, 1);
+	ret = regmap_raw_write(ts->regmap, ts->mmap[MMAP_BOOT_RDY_ADDR], val, 1);
+	if (ret)
+		return ret;
 
 	/* add checking to those sleep func such that can suspend early */
 	if (ts->status & NT36XXX_STATUS_SUSPEND)
@@ -1063,22 +1109,26 @@ static int _nt36xxx_boot_download_firmware(struct nt36xxx_ts *ts) {
 	if (ret)
 		return ret;
 
-check_fw:
-	/* nvt_get_fw_info() */
-	ret = regmap_raw_read(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR] | NT36XXX_EVT_FWINFO, val, 16);
-	if (ret)
-		return ret;
-
-	dev_dbg(ts->dev, "Get default fw_ver=%d, max_x=%d, max_y=%d, by default max_x=%d max_y=%d\n",
-				val[2], ts->prop.max_x, ts->prop.max_y, ts->data->max_x, ts->data->max_y);
-
-	if (val[0] != 0xff && retry < 5) {
-		dev_err(ts->dev, "FW info is broken! fw_ver=0x%02X, ~fw_ver=0x%02X\n", val[1], val[2]);
-		retry++;
-		goto check_fw;
+	/*
+	 * nvt_get_fw_info(): data[0] = fw_ver, data[1] = ~fw_ver. The stock
+	 * driver retries three times and then continues with defaults, so a
+	 * broken info block is reported but is not a download failure.
+	 */
+	for (retry = 0; retry < 3; retry++) {
+		ret = regmap_raw_read(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR] |
+				      NT36XXX_EVT_FWINFO, val, 2);
+		if (ret)
+			return ret;
+		if ((u8)(val[0] + val[1]) == 0xff)
+			break;
+		usleep_range(10000, 11000);
 	}
 
-	dev_info(ts->dev, "Touch IC fw loaded ok");
+	if (retry == 3)
+		dev_warn(ts->dev, "FW info is broken: fw_ver=0x%02x, bar=0x%02x\n",
+			 val[0], val[1]);
+	else
+		dev_info(ts->dev, "Touch IC fw 0x%02x loaded ok\n", val[0]);
 
 	ts->status |= NT36XXX_STATUS_DOWNLOAD_COMPLETE;
 
@@ -1087,43 +1137,29 @@ check_fw:
 
 static void nt36xxx_download_firmware(struct work_struct *work) {
 	struct nt36xxx_ts *ts = container_of(work, struct nt36xxx_ts, work.work);
-	int ret = 0;
-
-	cancel_delayed_work(&ts->work);
+	int ret;
 
 	mutex_lock(&ts->lock);
-	_nt36xxx_boot_prepare_firmware(ts);
+	ret = _nt36xxx_boot_prepare_firmware(ts);
 	mutex_unlock(&ts->lock);
+	if (ret)
+		dev_err(ts->dev, "firmware %s unavailable: %d\n", ts->fw_name, ret);
 
-	if (!(ts->status & NT36XXX_STATUS_PREPARE_FIRMWARE) || (ts->status & NT36XXX_STATUS_DOWNLOAD_COMPLETE) )
+	if (!(ts->status & NT36XXX_STATUS_PREPARE_FIRMWARE) ||
+	    (ts->status & NT36XXX_STATUS_DOWNLOAD_COMPLETE))
 		goto exit;
 
-	/* at probe() is force to enable but suspend the dev if not panel-follower */
-	if (ts->status & NT36XXX_STATUS_SUSPEND) {
-		dev_info(ts->dev, "%s suspend1 is issued 0x%x", __func__, ret);
-	}
-
-	if (!drm_is_panel_follower(ts->dev)) {
-		/* This might not function properly due to panel-follower takeover. */
-		if (pm_runtime_enabled(ts->dev))
-			pm_runtime_disable(ts->dev);
-
-		/* so the pm resume might have code to enable regulators. */
-		ret = pm_runtime_resume_and_get(ts->dev);
-		if (ret) {
-			dev_err(ts->dev, "%s resume fail 0x%x", __func__, ret);
-			goto exit;
-		}
-	}
-
-	disable_irq_nosync(ts->irq);
+	/*
+	 * The driver has no runtime-PM callbacks and the A22x touch supplies
+	 * belong to the panel, so no runtime-PM transition is needed here.
+	 * Wait for a running report thread before resetting the MCU.
+	 */
+	disable_irq(ts->irq);
 
 	mutex_lock(&ts->lock);
 
-        if (ts->status & NT36XXX_STATUS_SUSPEND) {
-                dev_info(ts->dev, "%s suspend4 is issued 0x%x", __func__, ret);
+	if (ts->status & NT36XXX_STATUS_SUSPEND)
 		goto unlock;
-        }
 
 	ret = nt36xxx_eng_reset_idle(ts);
 	if (ret) {
@@ -1131,33 +1167,29 @@ static void nt36xxx_download_firmware(struct work_struct *work) {
 		goto unlock;
 	}
 
-        if (ts->status & NT36XXX_STATUS_SUSPEND) {
-                dev_info(ts->dev, "%s suspend5 is issued 0x%x", __func__, ret);
-		goto unlock;
-        }
-
-	/* Set memory maps for the specific chip version */
 	ret = nt36xxx_chip_version_init(ts);
 	if (ret) {
 		dev_err(ts->dev, "Failed to check chip version step(4), ret=%d\n", ret);
 		goto unlock;
 	}
 
-	dev_dbg(ts->dev, "ts->status=0x%x", ts->status);
-
-	_nt36xxx_boot_download_firmware(ts);
+	ret = _nt36xxx_boot_download_firmware(ts);
+	if (ret)
+		dev_err(ts->dev, "firmware download failed: %d\n", ret);
+	else
+		ts->download_attempts = 0;
 unlock:
 	mutex_unlock(&ts->lock);
 	enable_irq(ts->irq);
-
-	if (!drm_is_panel_follower(ts->dev)) {
-	        pm_runtime_put(ts->dev);
-		pm_runtime_enable(ts->dev);
-	}
 exit:
-	if (!(ts->status & NT36XXX_STATUS_DOWNLOAD_COMPLETE)) {
-		schedule_delayed_work(&ts->work, 4000);
+	if (ts->status & (NT36XXX_STATUS_DOWNLOAD_COMPLETE | NT36XXX_STATUS_SUSPEND))
+		return;
+	if (++ts->download_attempts >= NT36XXX_MAX_RETRIES) {
+		dev_err(ts->dev, "giving up after %u firmware attempts\n",
+			ts->download_attempts);
+		return;
 	}
+	schedule_delayed_work(&ts->work, msecs_to_jiffies(4000));
 }
 
 static void nt36xxx_release_memory(void *data)
@@ -1234,6 +1266,8 @@ static int nt36xxx_input_dev_config(struct nt36xxx_ts *ts, const struct input_id
 	input_set_abs_params(ts->input, ABS_MT_PRESSURE, 0,
 						 TOUCH_MAX_PRESSURE, 0, 0);
 	input_set_abs_params(ts->input, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
+	/* Palm and metal-jig contacts are reported as MT_TOOL_PALM. */
+	input_set_abs_params(ts->input, ABS_MT_TOOL_TYPE, 0, MT_TOOL_MAX, 0, 0);
 
 	input_set_abs_params(ts->input, ABS_MT_POSITION_X, 0,
 						 ts->data->abs_x_max - 1, 0, 0);
@@ -1386,10 +1420,13 @@ int nt36xxx_probe(struct device *dev, int irq, const struct input_id *id,
 		return ret;
 	}
 
-	/* The A22x EINT GPIO14 is falling-edge in the device tree. Do not
-	 * override its trigger to rising-edge at request_irq() time. */
+	/*
+	 * The shared A22x touch node carries Himax's falling-edge trigger. The
+	 * stock Novatek DT and probe log use 0x2001 (rising | oneshot), so the
+	 * match data may name a board-proven trigger; 0 keeps the DT trigger.
+	 */
 	ret = devm_request_threaded_irq(dev, ts->irq, NULL, nt36xxx_irq_handler,
-			IRQF_ONESHOT, dev_name(dev), ts);
+			IRQF_ONESHOT | ts->data->irq_trigger, dev_name(dev), ts);
 	if (ret) {
 		dev_err(dev, "request irq failed: %d\n", ret);
 		return ret;
@@ -1407,19 +1444,12 @@ int nt36xxx_probe(struct device *dev, int irq, const struct input_id *id,
 		ret = devm_drm_panel_add_follower(dev, &ts->panel_follower);
 		if (ret)
 			return dev_err_probe(dev, ret, "cannot follow display panel\n");
-	} else {
-		pm_runtime_enable(dev);
 	}
 
 	/* have to make sure this is first time schedule work, if devm_drm_panel_add_follower
 	 * called into internal resume with schedule_delay_work, then block it over there */
 	if (ts->fw_name) {
 		ts->status |= NT36XXX_STATUS_NEED_FIRMWARE;
-
-		if (!drm_is_panel_follower(dev)) {
-			/* make it suspend and let delay-queue to resume it */
-			pm_runtime_suspend(dev);
-		}
 
 		devm_delayed_work_autocancel(dev, &ts->work, nt36xxx_download_firmware);
 		schedule_delayed_work(&ts->work, 0);
@@ -1442,11 +1472,11 @@ static int __maybe_unused nt36xxx_internal_pm_suspend(struct device *dev)
 
 	cancel_delayed_work_sync(&ts->work);
 
-	/* adding the mutex is to protect concurrent with download_task */
+	/* Vendor nvt_ts_suspend(): 0x11 to EVENT_BUF + 0x50 (host command). */
 	mutex_lock(&ts->lock);
-	if (ts->mmap[MMAP_EVENT_BUF_ADDR]) {
-		ret = regmap_write(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR], NT36XXX_CMD_ENTER_SLEEP);
-	}
+	if (ts->status & NT36XXX_STATUS_DOWNLOAD_COMPLETE)
+		ret = regmap_write(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR] |
+				   NT36XXX_EVT_HOST_CMD, NT36XXX_CMD_ENTER_SLEEP);
 
 	if (ret)
 		dev_err(ts->dev, "Cannot enter suspend!\n");
@@ -1463,12 +1493,14 @@ static int __maybe_unused nt36xxx_pm_suspend(struct device *dev)
 	if (drm_is_panel_follower(dev))
 		return 0;
 
-	disable_irq_nosync(ts->irq);
+	disable_irq(ts->irq);
+
+	/* Send the sleep command while the controller is still powered. */
+	ret = nt36xxx_internal_pm_suspend(dev);
 
 	if (ts->supplies_acquired)
 		regulator_bulk_disable(NT36XXX_NUM_SUPPLIES, ts->supplies);
 
-	ret = nt36xxx_internal_pm_suspend(dev);
 	return ret;
 }
 
@@ -1476,9 +1508,11 @@ static int __maybe_unused nt36xxx_internal_pm_resume(struct device *dev)
 {
 	struct nt36xxx_ts *ts = dev_get_drvdata(dev);
 
+	/* The panel/controller lost SRAM: reload as nvt_ts_resume() does. */
 	mutex_lock(&ts->lock);
-	if(ts->status & (NT36XXX_STATUS_SUSPEND | NT36XXX_STATUS_DOWNLOAD_COMPLETE))
-                ts->status &= ~(NT36XXX_STATUS_SUSPEND | NT36XXX_STATUS_DOWNLOAD_COMPLETE);
+	ts->status &= ~(NT36XXX_STATUS_SUSPEND | NT36XXX_STATUS_DOWNLOAD_COMPLETE);
+	ts->download_attempts = 0;
+	ts->wdt_frames = 0;
 	mutex_unlock(&ts->lock);
 
 	if (ts->status & NT36XXX_STATUS_NEED_FIRMWARE)
@@ -1495,13 +1529,15 @@ static int __maybe_unused nt36xxx_pm_resume(struct device *dev)
         if (drm_is_panel_follower(dev))
                 return 0;
 
+	if (ts->supplies_acquired) {
+		ret = regulator_bulk_enable(NT36XXX_NUM_SUPPLIES, ts->supplies);
+		if (ret)
+			dev_err(dev, "cannot enable supplies: %d\n", ret);
+	}
+
 	enable_irq(ts->irq);
 
-	if (ts->supplies_acquired)
-		ret = regulator_bulk_enable(NT36XXX_NUM_SUPPLIES, ts->supplies);
-
-	ret = nt36xxx_internal_pm_resume(dev);
-	return ret;
+	return nt36xxx_internal_pm_resume(dev);
 }
 
 EXPORT_GPL_SIMPLE_DEV_PM_OPS(nt36xxx_pm_ops,
