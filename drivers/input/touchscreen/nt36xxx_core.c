@@ -1014,15 +1014,11 @@ static int _nt36xxx_boot_prepare_firmware(struct nt36xxx_ts *ts) {
 	return 0;
 }
 
-static int _nt36xxx_boot_download_firmware(struct nt36xxx_ts *ts) {
-        int i, ret, retry = 0;
-        u8 val[8 * 4] = {0};
-
-	/* this also avoid suspend with delay-queue active */
-	if (!(ts->status & NT36XXX_STATUS_PREPARE_FIRMWARE))
-		return -EIO;
-
-        WARN(ts->hw_crc != 2, "ts->hw_crc != 2");
+/* One stock nvt_download_firmware_hw_crc() pass, up to the INIT state. */
+static int nt36xxx_boot_firmware_once(struct nt36xxx_ts *ts)
+{
+	int i, ret;
+	u8 val[1];
 
 	if (ts->hw_crc) {
 		ret = nt36xxx_download_firmware_hw_crc(ts);
@@ -1105,7 +1101,26 @@ static int _nt36xxx_boot_download_firmware(struct nt36xxx_ts *ts) {
 	usleep_range(10000, 11000);
 
 	/* nvt_check_fw_reset_state() */
-	ret = nt36xxx_check_reset_state(ts, NT36XXX_STATE_INIT);
+	return nt36xxx_check_reset_state(ts, NT36XXX_STATE_INIT);
+}
+
+static int _nt36xxx_boot_download_firmware(struct nt36xxx_ts *ts)
+{
+	int ret = -EIO, retry;
+	u8 val[2];
+
+	/* this also avoid suspend with delay-queue active */
+	if (!(ts->status & NT36XXX_STATUS_PREPARE_FIRMWARE))
+		return -EIO;
+
+	/* The stock driver repeats the whole upload and boot pass 3 times. */
+	for (retry = 0; retry < 3; retry++) {
+		ret = nt36xxx_boot_firmware_once(ts);
+		if (!ret || (ts->status & NT36XXX_STATUS_SUSPEND))
+			break;
+		dev_warn(ts->dev, "firmware boot attempt %d failed: %d\n",
+			 retry + 1, ret);
+	}
 	if (ret)
 		return ret;
 
@@ -1461,6 +1476,19 @@ int nt36xxx_probe(struct device *dev, int irq, const struct input_id *id,
 
 EXPORT_SYMBOL_GPL(nt36xxx_probe);
 
+/* The controller stops reporting: end every contact userspace still holds. */
+static void nt36xxx_release_contacts(struct nt36xxx_ts *ts)
+{
+	int i;
+
+	for (i = 0; i < TOUCH_MAX_FINGER_NUM; i++) {
+		input_mt_slot(ts->input, i);
+		input_mt_report_slot_inactive(ts->input);
+	}
+	input_mt_sync_frame(ts->input);
+	input_sync(ts->input);
+}
+
 static int __maybe_unused nt36xxx_internal_pm_suspend(struct device *dev)
 {
 	struct nt36xxx_ts *ts = dev_get_drvdata(dev);
@@ -1481,6 +1509,9 @@ static int __maybe_unused nt36xxx_internal_pm_suspend(struct device *dev)
 	if (ret)
 		dev_err(ts->dev, "Cannot enter suspend!\n");
 	mutex_unlock(&ts->lock);
+
+	/* Callers have disabled the IRQ and waited for the report thread. */
+	nt36xxx_release_contacts(ts);
 
 	return 0;
 }
@@ -1566,7 +1597,7 @@ static int panel_unpreparing(struct drm_panel_follower *follower)
 	ts->status |= NT36XXX_STATUS_SUSPEND;
 	mutex_unlock(&ts->lock);
 
-	disable_irq_nosync(ts->irq);
+	disable_irq(ts->irq);
 
 	return nt36xxx_internal_pm_suspend(ts->dev);
 }
