@@ -8,8 +8,10 @@
  */
 #include <linux/interrupt.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/pm.h>
 #include <linux/property.h>
+#include <linux/string.h>
 #include <drm/drm_panel.h>
 #include "himax_platform.h"
 #include "himax_common.h"
@@ -251,10 +253,40 @@ static const struct drm_panel_follower_funcs himax_panel_follower_funcs = {
 	.panel_unpreparing = himax_panel_unpreparing,
 };
 
+/* The stock A22x DTBO advertises several mutually exclusive ICs on one
+ * SPI chip select. If LK identifies another family, do not touch its reset
+ * line or grab the SPI device before its own driver can probe. */
+static bool himax_is_selected_panel(struct device *dev, bool *txd)
+{
+	struct device_node *chosen;
+	const char *bootargs;
+	bool selected = true;
+
+	*txd = false;
+	chosen = of_find_node_by_path("/chosen");
+	if (!chosen)
+		return true;
+	if (!of_property_read_string(chosen, "bootargs", &bootargs)) {
+		if (strstr(bootargs, "nt36672") || strstr(bootargs, "nt36675") ||
+		    strstr(bootargs, "ili7807") || strstr(bootargs, "ft8722"))
+			selected = false;
+		/* LK passes the stock lcm name as a bare cmdline token
+		 * (mtk_tpd.c tp_match_lcm_name()). */
+		if (strstr(bootargs, "hx83112f_fhdp_wt_dsi_vdo_cphy_90hz_txd"))
+			*txd = true;
+	}
+	of_node_put(chosen);
+	return selected;
+}
+
 static int himax_hx83112f_probe(struct spi_device *spi)
 {
 	struct himax_ts_data *ts;
+	bool txd_panel;
 	int ret;
+
+	if (!himax_is_selected_panel(&spi->dev, &txd_panel))
+		return -ENODEV;
 
 	hx_reset_gpio = devm_gpiod_get_optional(&spi->dev, "reset", GPIOD_ASIS);
 	if (IS_ERR(hx_reset_gpio))
@@ -286,8 +318,13 @@ static int himax_hx83112f_probe(struct spi_device *spi)
 	private_ts = ts;
 	mutex_init(&ts->rw_lock);
 
-	g_fw_boot_upgrade_name = "Himax_firmware_fw_jdi.bin";
-	g_fw_mp_upgrade_name = "Himax_firmware_mp_jdi.bin";
+	/* JDI is the already-qualified 1.0.2 default. Select TXD only when
+	 * LK positively names its HX83112F panel variant. */
+	g_lcm_name = txd_panel ? 3 : 5;
+	g_fw_boot_upgrade_name = txd_panel ? "Himax_firmware_fw_txd.bin" :
+		"Himax_firmware_fw_jdi.bin";
+	g_fw_mp_upgrade_name = txd_panel ? "Himax_firmware_mp_txd.bin" :
+		"Himax_firmware_mp_jdi.bin";
 
 	hx_follows_panel = drm_is_panel_follower(&spi->dev);
 	if (hx_follows_panel) {
@@ -347,6 +384,7 @@ MODULE_DEVICE_TABLE(of, himax_hx83112f_of_match);
 
 static const struct spi_device_id himax_hx83112f_id[] = {
 	{ "hx83112f" },
+	{ "common" },
 	{ }
 };
 MODULE_DEVICE_TABLE(spi, himax_hx83112f_id);
