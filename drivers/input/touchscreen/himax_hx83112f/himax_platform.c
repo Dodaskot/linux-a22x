@@ -270,8 +270,9 @@ static bool himax_is_selected_panel(struct device *dev, bool *txd)
 		if (strstr(bootargs, "nt36672") || strstr(bootargs, "nt36675") ||
 		    strstr(bootargs, "ili7807") || strstr(bootargs, "ft8722"))
 			selected = false;
-		if (strstr(bootargs, "txd_hx83112") ||
-		    strstr(bootargs, "hx83112f_txd"))
+		/* LK passes the stock lcm name as a bare cmdline token
+		 * (mtk_tpd.c tp_match_lcm_name()). */
+		if (strstr(bootargs, "hx83112f_fhdp_wt_dsi_vdo_cphy_90hz_txd"))
 			*txd = true;
 	}
 	of_node_put(chosen);
