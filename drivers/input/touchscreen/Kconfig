@@ -1412,6 +1412,18 @@ config TOUCHSCREEN_HIMAX_HX83112F
 	  the Samsung Galaxy A22 5G. The controller has no flash; firmware is
 	  loaded into its SRAM at every boot.
 
+config TOUCHSCREEN_NT36XXX_SPI
+	tristate "Novatek NT36xxx/NT36675 SPI touchscreen (experimental)"
+	depends on SPI && OF
+	depends on DRM_PANEL || !DRM_PANEL
+	select FW_LOADER
+	select REGMAP
+	help
+	  Mainline-oriented SPI port of the NT36xxx host-download controller.
+	  The Galaxy A22 5G has NT36675 silicon identified by its trim bytes;
+	  this is not the I2C-only NOVATEK_NVT_TS driver. Hardware validation
+	  is required before a stable recovery release.
+
 config TOUCHSCREEN_HIMAX_HX83112B
 	tristate "Himax hx83112b touchscreen driver"
 	depends on I2C
