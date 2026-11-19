@@ -26,6 +26,9 @@
 
 #define DEBUG 0
 
+/* Stock CTP_SPI_READ()/CTP_SPI_WRITE() retry a failed transfer 5 times. */
+#define NT36XXX_SPI_RETRIES	5
+
 /*
  * there are two kinds of spi read/write:
  * 	(a)spi_read()/spi_write()/spi_write_then_read(),
@@ -48,6 +51,7 @@ static int nt36xxx_spi_write(void *dev, const void *data,
 	u32 reg;
 	u8 addr[4];
 	void *data1;
+	int retry;
 
 	if (len < sizeof(reg))
 		return -EINVAL;
@@ -64,9 +68,13 @@ static int nt36xxx_spi_write(void *dev, const void *data,
 
 	dev_dbg(dev, "%s len=0x%lx", __func__, len);
 
-	ret = spi_write(spi, data1, 3);
-	if (!ret)
-		ret = spi_write(spi, data1 + 3, len - 3);
+	for (retry = 0; retry < NT36XXX_SPI_RETRIES; retry++) {
+		ret = spi_write(spi, data1, 3);
+		if (!ret)
+			ret = spi_write(spi, data1 + 3, len - 3);
+		if (!ret)
+			break;
+	}
 	if (ret)
 		dev_err(dev, "transfer err %d\n ", ret);
 	else if (DEBUG) {
@@ -87,7 +95,7 @@ static int nt36xxx_spi_read(void *dev, const void *reg_buf,
                                   size_t val_size)
 {
 	struct spi_device *spi = to_spi_device(dev);
-	int ret;
+	int ret, retry;
 	u32 reg;
 	u8 addr[4];
 	u8 *rx;
@@ -100,12 +108,6 @@ static int nt36xxx_spi_read(void *dev, const void *reg_buf,
 	addr[2] = reg >> 7;
 	addr[3] = reg & 0x7f;
 
-	ret = spi_write(spi, addr, 3);
-	if (ret) {
-		dev_err(dev, "transfer0 err %s %d ret=%d", __func__, __LINE__, ret);
-		return ret;
-	}
-
 	/* NT36675 returns one dummy byte after the read command. The Samsung
 	 * 4.14 SPI driver discards rbuf[0] (command) and rbuf[1] (dummy);
 	 * spi_write_then_read() has already separated the command from RX. */
@@ -114,9 +116,15 @@ static int nt36xxx_spi_read(void *dev, const void *reg_buf,
 	rx = kmalloc(val_size + 1, GFP_KERNEL | GFP_DMA);
 	if (!rx)
 		return -ENOMEM;
-	ret = spi_write_then_read(spi, &addr[3], 1, rx, val_size + 1);
+	for (retry = 0; retry < NT36XXX_SPI_RETRIES; retry++) {
+		ret = spi_write(spi, addr, 3);
+		if (!ret)
+			ret = spi_write_then_read(spi, &addr[3], 1, rx, val_size + 1);
+		if (!ret)
+			break;
+	}
 	if (ret) {
-		dev_err(dev, "transfer1 err %s %d ret=%d", __func__, __LINE__, ret);
+		dev_err(dev, "read 0x%06x failed: %d\n", reg, ret);
 		kfree(rx);
 		return ret;
 	}
