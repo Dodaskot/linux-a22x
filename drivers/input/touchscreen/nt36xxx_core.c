@@ -19,6 +19,7 @@
 #include <linux/input/touchscreen.h>
 #include <linux/interrupt.h>
 #include <linux/irqnr.h>
+#include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/printk.h>
@@ -29,6 +30,11 @@
 #include <drm/drm_panel.h>
 
 #include "nt36xxx.h"
+
+/* Remote bring-up aid: log the raw bytes of the first N touch frames. */
+static unsigned int debug_frames;
+module_param(debug_frames, uint, 0644);
+MODULE_PARM_DESC(debug_frames, "log the raw bytes of the first N touch frames");
 
 /* Main mmap to spi addr */
 enum {
@@ -105,6 +111,8 @@ struct nt36xxx_ts {
 	struct delayed_work work;
 	unsigned int download_attempts;
 	unsigned int wdt_frames;
+	unsigned int frames_logged;
+	bool contact_seen;
 
 	/* this is a duplicate with nt36xxx_chip_data and since the address might
 	 * change in boot/init/download stages so make it a copy of initial map and
@@ -517,6 +525,12 @@ static void nt36xxx_report(struct nt36xxx_ts *ts)
 		return;
 	}
 
+	if (ts->frames_logged < debug_frames) {
+		ts->frames_logged++;
+		dev_info(ts->dev, "frame %u: %32ph\n", ts->frames_logged, point);
+		dev_info(ts->dev, "frame %u: %33ph\n", ts->frames_logged, point + 32);
+	}
+
 	/*
 	 * Vendor nvt_wdt_fw_recovery(): data[0..5] all 0xFD/0xFE. The firmware
 	 * is reloaded only after more than NT36XXX_WDT_FRAMES consecutive
@@ -538,7 +552,7 @@ static void nt36xxx_report(struct nt36xxx_ts *ts)
 		return;
 
 	if (!nt36xxx_point_checksum_ok(point)) {
-		dev_dbg_ratelimited(ts->dev, "touch frame checksum mismatch\n");
+		dev_warn_ratelimited(ts->dev, "touch frame checksum mismatch\n");
 		return;
 	}
 
@@ -587,6 +601,12 @@ static void nt36xxx_report(struct nt36xxx_ts *ts)
 		touchscreen_report_pos(input, &ts->prop, obj->x, obj->y, true);
 		input_report_abs(input, ABS_MT_TOUCH_MAJOR, obj->tm);
 		input_report_abs(input, ABS_MT_PRESSURE, obj->z);
+
+		if (!ts->contact_seen) {
+			ts->contact_seen = true;
+			dev_info(ts->dev, "first contact: id %u status %u at %u,%u\n",
+				 input_id, status, obj->x, obj->y);
+		}
 	}
 
 	input_mt_sync_frame(input);
@@ -677,8 +697,14 @@ static int nt36xxx_chip_version_init(struct nt36xxx_ts *ts)
 
 			t = nt36xxx_match_trim(id);
 			if (!t) {
-				dev_dbg(ts->dev, "trim 0x%05x attempt %d: %6ph\n",
-					trim_addrs[a], retry, id);
+				/* First attempt per address at info level: the
+				 * bytes show a framing shift on real hardware. */
+				if (!retry)
+					dev_info(ts->dev, "trim 0x%05x: %6ph not known\n",
+						 trim_addrs[a], id);
+				else
+					dev_dbg(ts->dev, "trim 0x%05x attempt %d: %6ph\n",
+						trim_addrs[a], retry, id);
 				ret = -ENODEV;
 				usleep_range(10000, 11000);
 				continue;
@@ -1470,7 +1496,8 @@ int nt36xxx_probe(struct device *dev, int irq, const struct input_id *id,
 		schedule_delayed_work(&ts->work, 0);
 	}
 
-	dev_info(dev, "probe ok!");
+	dev_info(dev, "probe ok: irq %d, trigger 0x%lx (0 = devicetree), fw %s\n",
+		 ts->irq, ts->data->irq_trigger, ts->fw_name ? ts->fw_name : "none");
 	return 0;
 }
 
