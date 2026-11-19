@@ -14,7 +14,7 @@ config PSTORE
 	   say N.
 
 config PSTORE_DEFAULT_KMSG_BYTES
-	int "Default kernel log storage space" if EXPERT
+	int "Default kernel log storage space" if EXPERT || A22X_DECRYPT_DIAG
 	depends on PSTORE
 	default "10240"
 	help

@@ -3643,3 +3643,12 @@ config RUST_INLINE_HELPERS
 endmenu # "Rust"
 
 endmenu # Kernel hacking
+
+config A22X_DECRYPT_DIAG
+ bool "A22x scalar-only decryption path tracepoints"
+ depends on TRACING && FS_ENCRYPTION && TZDEV
+ default n
+ help
+   Record operation entry/exit and negative errno without pointers, key
+   identifiers, filenames, argument lengths, credential or buffer contents.
+   Events are disabled until enabled through a controlled trace instance.

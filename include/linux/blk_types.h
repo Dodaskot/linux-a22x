@@ -263,6 +263,10 @@ struct bio {
 	struct bio_crypt_ctx	*bi_crypt_context;
 #endif
 
+#if IS_ENABLED(CONFIG_DM_DEFAULT_KEY)
+	bool			bi_skip_dm_default_key;
+#endif
+
 #if defined(CONFIG_BLK_DEV_INTEGRITY)
 	struct bio_integrity_payload *bi_integrity; /* data integrity */
 #endif

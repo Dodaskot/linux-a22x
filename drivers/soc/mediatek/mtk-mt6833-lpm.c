@@ -807,7 +807,7 @@ static ssize_t ufs_request_status_show(struct device *dev,
 		"result=%d\nrecovery=%d\nleaf_held=%u\nsource_held=%u\n",
 		lpm->ufs_request_cleanup, lpm->ufs_request_fault,
 		lpm->ufs_request_saved_xo, lpm->ufs_request_last_xo,
-		request, request & SPM_UFS_REQ_MASK, lpm->ufs_request_clears,
+		request, (u32)(request & SPM_UFS_REQ_MASK), lpm->ufs_request_clears,
 		lpm->ufs_request_result, lpm->ufs_request_recovery,
 		lpm->ufs_clocks_held, lpm->ufs_sources_held);
 }

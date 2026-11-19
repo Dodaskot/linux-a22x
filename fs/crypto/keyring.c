@@ -18,6 +18,7 @@
  * information about these ioctls.
  */
 
+#include <linux/a22x_decrypt_diag.h>
 #include <crypto/skcipher.h>
 #include <linux/export.h>
 #include <linux/key-type.h>
@@ -726,7 +727,7 @@ out_put:
  * For more details, see the "FS_IOC_ADD_ENCRYPTION_KEY" section of
  * Documentation/filesystems/fscrypt.rst.
  */
-int fscrypt_ioctl_add_key(struct file *filp, void __user *_uarg)
+static int fscrypt_ioctl_add_key_impl(struct file *filp, void __user *_uarg)
 {
 	struct super_block *sb = file_inode(filp)->i_sb;
 	struct fscrypt_add_key_arg __user *uarg = _uarg;
@@ -792,6 +793,14 @@ int fscrypt_ioctl_add_key(struct file *filp, void __user *_uarg)
 out_wipe_secret:
 	wipe_master_key_secret(&secret);
 	return err;
+}
+int fscrypt_ioctl_add_key(struct file *filp, void __user *_uarg)
+{
+ int ret;
+ a22x_diag_emit(A22X_DIAG_FSCRYPT_ADD_KEY, 0, 0, 0);
+ ret = fscrypt_ioctl_add_key_impl(filp, _uarg);
+ a22x_diag_emit(A22X_DIAG_FSCRYPT_ADD_KEY, 0, 1, ret);
+ return ret;
 }
 EXPORT_SYMBOL_GPL(fscrypt_ioctl_add_key);
 

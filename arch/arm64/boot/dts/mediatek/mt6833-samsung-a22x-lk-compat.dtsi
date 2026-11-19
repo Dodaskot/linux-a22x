@@ -6112,7 +6112,7 @@
 	};
 
 	teegris {
-		status = "disabled";
+		status = "okay";
 		compatible = "samsung,teegris";
 		interrupts = <0x00 0x12e 0x04 0x00 0x12f 0x04>;
 	};
