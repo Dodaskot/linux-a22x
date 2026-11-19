@@ -113,6 +113,11 @@ struct nt36xxx_ts {
 	unsigned int wdt_frames;
 	unsigned int frames_logged;
 	bool contact_seen;
+	/* Touch-frame read: stock shape first, page select as the fallback. */
+	bool frame_page_select;
+	unsigned int bad_frames;
+	unsigned int frame_mode_switches;
+	bool diag_dumped;
 
 	/* this is a duplicate with nt36xxx_chip_data and since the address might
 	 * change in boot/init/download stages so make it a copy of initial map and
@@ -501,24 +506,70 @@ static bool nt36xxx_point_checksum_ok(const u8 *data)
 	return (u8)(~sum + 1) == data[POINT_DATA_CHECKSUM_LEN - 1];
 }
 
-/**
- * nt36xxx_report - Report touch events
- * @ts: Main driver structure
- *
- * Return: Always zero for success, negative number for error
- */
+/* Runs in the IRQ thread with the line masked: nothing else uses the bus. */
+static void nt36xxx_diag_dump(struct nt36xxx_ts *ts)
+{
+	u8 buf[128];
+	int half, i;
+
+	dev_warn(ts->dev, "no valid touch frame in either read mode; event page dump:\n");
+	for (half = 0; half < 2; half++) {
+		u32 addr = ts->mmap[MMAP_EVENT_BUF_ADDR] + 128 * half;
+
+		if (regmap_raw_read(ts->regmap, addr, buf, sizeof(buf)))
+			break;
+		for (i = 0; i < sizeof(buf); i += 16)
+			dev_warn(ts->dev, "diag %05x: %16ph\n", addr + i, buf + i);
+	}
+	if (!regmap_raw_read(ts->regmap, NT36XXX_CHIP_VER_TRIM_ADDR & ~0x7f, buf, 16))
+		dev_warn(ts->dev, "diag %05x: %16ph\n",
+			 NT36XXX_CHIP_VER_TRIM_ADDR & ~0x7f, buf);
+	nt36xxx_bus_set_page(ts->dev, ts->mmap[MMAP_EVENT_BUF_ADDR]);
+}
+
+/* A frame failed its checksum: after a run of them try the other read mode. */
+static void nt36xxx_bad_frame(struct nt36xxx_ts *ts)
+{
+	dev_warn_ratelimited(ts->dev, "touch frame checksum mismatch\n");
+	if (++ts->bad_frames < NT36XXX_BAD_FRAMES_SWITCH)
+		return;
+	ts->bad_frames = 0;
+	if (ts->frame_mode_switches >= 2) {
+		if (!ts->diag_dumped) {
+			ts->diag_dumped = true;
+			nt36xxx_diag_dump(ts);
+		}
+		return;
+	}
+	ts->frame_mode_switches++;
+	ts->frame_page_select = !ts->frame_page_select;
+	ts->frames_logged = 0;
+	dev_warn(ts->dev, "%u bad frames: reading frames %s a page select now\n",
+		 NT36XXX_BAD_FRAMES_SWITCH, ts->frame_page_select ? "with" : "without");
+	nt36xxx_bus_set_page(ts->dev, ts->mmap[MMAP_EVENT_BUF_ADDR]);
+}
+
+/* Read one touch frame and report its contacts. */
 static void nt36xxx_report(struct nt36xxx_ts *ts)
 {
 	struct nt36xxx_abs_object *obj = &ts->abs_obj;
 	struct input_dev *input = ts->input;
-	u8 point[POINT_DATA_LEN];
+	u8 point[NT36XXX_FRAME_READ_LEN];
 	int i, ret;
 
 	if (ts->status & NT36XXX_STATUS_SUSPEND)
 		return;
 
-	ret = regmap_raw_read(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR],
-				point, sizeof(point));
+	/*
+	 * Stock nvt_ts_work_func(): no page select, one transfer, 108 data
+	 * bytes from offset 0 of the page left at EVENT_BUF. On a real A22x a
+	 * page select before each frame returned a static block instead.
+	 */
+	if (ts->frame_page_select)
+		ret = regmap_raw_read(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR],
+				      point, sizeof(point));
+	else
+		ret = nt36xxx_bus_read_nopage(ts->dev, 0, point, sizeof(point));
 	if (ret < 0) {
 		dev_err_ratelimited(ts->dev,
 				    "Cannot read touch point data: %d\n", ret);
@@ -552,9 +603,10 @@ static void nt36xxx_report(struct nt36xxx_ts *ts)
 		return;
 
 	if (!nt36xxx_point_checksum_ok(point)) {
-		dev_warn_ratelimited(ts->dev, "touch frame checksum mismatch\n");
+		nt36xxx_bad_frame(ts);
 		return;
 	}
+	ts->bad_frames = 0;
 
 	for (i = 0; i < TOUCH_MAX_FINGER_NUM; i++) {
 		const u8 *p = &point[6 * i];
@@ -1170,6 +1222,12 @@ static int _nt36xxx_boot_download_firmware(struct nt36xxx_ts *ts)
 			 val[0], val[1]);
 	else
 		dev_info(ts->dev, "Touch IC fw 0x%02x loaded ok\n", val[0]);
+
+	/* Stock nvt_get_fw_info() ends here: frames are read from this page. */
+	ret = nt36xxx_bus_set_page(ts->dev, ts->mmap[MMAP_EVENT_BUF_ADDR]);
+	if (ret)
+		return ret;
+	ts->bad_frames = 0;
 
 	ts->status |= NT36XXX_STATUS_DOWNLOAD_COMPLETE;
 

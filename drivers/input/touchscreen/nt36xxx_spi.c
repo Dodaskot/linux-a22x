@@ -170,6 +170,63 @@ static int nt36xxx_spi_read(void *dev, const void *reg_buf,
 	return ret;
 }
 
+/* Vendor nvt_set_page(): 0xFF, addr[22:15], addr[14:7]. */
+int nt36xxx_bus_set_page(struct device *dev, u32 addr)
+{
+	struct spi_device *spi = to_spi_device(dev);
+	u8 *cmd;
+	int ret, retry;
+
+	cmd = kmalloc(4, GFP_KERNEL | GFP_DMA);
+	if (!cmd)
+		return -ENOMEM;
+	cmd[0] = 0xff;
+	cmd[1] = addr >> 15;
+	cmd[2] = addr >> 7;
+	for (retry = 0; retry < NT36XXX_SPI_RETRIES; retry++) {
+		ret = spi_write(spi, cmd, 3);
+		if (!ret)
+			break;
+	}
+	kfree(cmd);
+	return ret;
+}
+
+/*
+ * Vendor CTP_SPI_READ() exactly: one full-duplex transfer of
+ * [command][dummy][data...] with zeros on MOSI after the command, no page
+ * select before it, separate TX and RX buffers.
+ */
+int nt36xxx_bus_read_nopage(struct device *dev, u8 offset, void *val, size_t len)
+{
+	struct spi_device *spi = to_spi_device(dev);
+	struct spi_transfer xfer = { };
+	u8 *tx, *rx;
+	int ret = -ENOMEM, retry;
+
+	if (!len || len > NT36XXX_TRANSFER_LEN)
+		return -EINVAL;
+	tx = kzalloc(len + 2, GFP_KERNEL | GFP_DMA);
+	rx = kzalloc(len + 2, GFP_KERNEL | GFP_DMA);
+	if (!tx || !rx)
+		goto out;
+	tx[0] = offset & 0x7f;
+	xfer.tx_buf = tx;
+	xfer.rx_buf = rx;
+	xfer.len = len + 2;
+	for (retry = 0; retry < NT36XXX_SPI_RETRIES; retry++) {
+		ret = spi_sync_transfer(spi, &xfer, 1);
+		if (!ret)
+			break;
+	}
+	if (!ret)
+		memcpy(val, rx + 2, len);
+out:
+	kfree(tx);
+	kfree(rx);
+	return ret;
+}
+
 static const struct regmap_config nt36xxx_regmap_config_32bit = {
 	.name = "nt36xxx_hw",
 	.reg_bits = 32,

@@ -40,6 +40,9 @@
  *   data[64]            two's complement checksum of data[0..63]
  */
 #define POINT_DATA_LEN		65
+/* The stock driver reads 108 data bytes per interrupt (POINT_DATA_LEN 108). */
+#define NT36XXX_FRAME_READ_LEN	108
+#define NT36XXX_BAD_FRAMES_SWITCH	20
 #define POINT_DATA_CHECKSUM_LEN	65
 #define NT36XXX_WDT_FRAMES	10
 
@@ -148,6 +151,11 @@ struct nt36xxx_trim_table {
 	uint8_t carrier_system;
 	uint8_t hw_crc;
 };
+
+/* Bus helpers for the touch-frame path, which the stock driver runs without
+ * a page select: it leaves the page at EVENT_BUF and reads offset 0. */
+int nt36xxx_bus_set_page(struct device *dev, u32 addr);
+int nt36xxx_bus_read_nopage(struct device *dev, u8 offset, void *val, size_t len);
 
 int nt36xxx_probe(struct device *dev, int irq, const struct input_id *id,
 			struct regmap *regmap);
