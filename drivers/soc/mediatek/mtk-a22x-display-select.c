@@ -42,17 +42,16 @@ static const char * const a22x_fallback_disable[] = {
 	"/regulator-panel-vsp",
 	"/regulator-panel-vsn",
 	/*
-	 * Not in the simple-framebuffer devicetree that works on non-JDI panels
-	 * (recovery 1.0.2.2-beta4 on a Tianma NT36672C phone). With them left on,
-	 * beta5 lost the picture about 50 s after boot and the TDDI touch reports
-	 * failed their checksum from then on (mainline-recovery issue #3). The
-	 * fallback now matches that working tree: the whole native display bus
-	 * (including its clock controller), the low-power controller and the
-	 * modem power controller stay off.
+	 * The native tree adds a DISP power domain that the simple-framebuffer tree
+	 * of beta4 (working on a Tianma NT36672C phone) does not have. With every
+	 * DISP consumer disabled, Linux must not manage that domain either: the
+	 * bootloader keeps the picture running. The domain is the only remaining
+	 * user of the display clock controller, so that goes too. The /display-ml
+	 * bus itself must stay: disabling it left the power controller without the
+	 * domain's clocks, and every power domain (Wi-Fi, GPU) failed to register.
 	 */
-	"/display-ml",
-	"/power-controller@c55fce0",
-	"/modem@10209000",
+	"/syscon@10006000/power-controller/power-domain@6",
+	"/display-ml/clock-controller-ml@14000000",
 };
 
 static const char * const a22x_fallback_enable[] = {
