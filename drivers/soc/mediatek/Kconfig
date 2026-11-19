@@ -5,6 +5,15 @@
 menu "MediaTek SoC drivers"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
 
+config MTK_A22X_DISPLAY_SELECT
+	bool "Samsung A22 5G display path selection by the bootloader's panel"
+	depends on OF_DYNAMIC
+	help
+	  The Galaxy A22 5G was built with several display panels, and this
+	  kernel has a native panel driver for one of them. Say Y to keep the
+	  bootloader's framebuffer on phones whose bootloader names another
+	  panel, when booted with the native-display devicetree.
+
 config MTK_A22X_RESERVED_MEMORY
 	bool "Samsung A22 5G reserved memory quirks"
 	depends on ARM64 && OF_RESERVED_MEM
