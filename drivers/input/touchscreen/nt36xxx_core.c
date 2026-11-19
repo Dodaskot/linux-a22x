@@ -495,8 +495,7 @@ static void nt36xxx_report(struct nt36xxx_ts *ts)
 	u8 input_id = 0;
 	u8 point[POINT_DATA_LEN + 1] = { 0 };
 	unsigned int ppos = 0;
-	int i, ret, finger_cnt = 0;
-	uint8_t press_id[TOUCH_MAX_FINGER_NUM] = {0};
+	int i, ret;
 
 	if (ts->status & NT36XXX_STATUS_SUSPEND)
 		return;
@@ -511,10 +510,12 @@ static void nt36xxx_report(struct nt36xxx_ts *ts)
 
 	/* wdt recovery and esd check */
 	for (i = 0; i < 7; i++) {
-		if ((point[i] != 0xFD) && (point[i] != 0xFE) && (point[i] != 0x77)) {
+		if ((point[i] != 0xFD) && (point[i] != 0xFE) && (point[i] != 0x77))
 			break;
-		}
-
+	}
+	/* A single legal/garbled point byte must not trigger a destructive
+	 * firmware reload: only a complete ESD watchdog pattern does. */
+	if (i == 7) {
 		mutex_lock(&ts->lock);
 		ts->status |= NT36XXX_STATUS_DOWNLOAD_RECOVER;
 		mutex_unlock(&ts->lock);
@@ -554,8 +555,6 @@ static void nt36xxx_report(struct nt36xxx_ts *ts)
 			if (obj->z == 0)
 				obj->z = 1;
 
-			press_id[input_id - 1] = 1;
-
 			input_mt_slot(input, input_id - 1);
 			input_mt_report_slot_state(input,
 						   MT_TOOL_FINGER, true);
@@ -566,7 +565,6 @@ static void nt36xxx_report(struct nt36xxx_ts *ts)
 			input_report_abs(input, ABS_MT_TOUCH_MAJOR, obj->tm);
 			input_report_abs(input, ABS_MT_PRESSURE, obj->z);
 
-			finger_cnt++;
 		}
 	}
 
@@ -1282,12 +1280,14 @@ static int nt36xxx_of_compatible(struct device *dev)
 		 * ILI7807S variant may also have a Tianma display. Only attempt
 		 * the Novatek SPI protocol when LK selected a Novatek family.
 		 */
-		if (!of_property_read_string(dt_node, "bootargs", &bootargs))
-			if (!strstr(bootargs, "nt36") && !strstr(bootargs, "NT36") &&
-			    !strstr(bootargs, "novatek") && !strstr(bootargs, "NVT")) {
-				of_node_put(dt_node);
-				return -ENODEV;
-			}
+		/* Missing bootargs must not let a Novatek probe reset a Himax,
+		 * Ilitek or FocalTech controller on the shared SPI chip select. */
+		if (of_property_read_string(dt_node, "bootargs", &bootargs) ||
+		    (!strstr(bootargs, "nt36") && !strstr(bootargs, "NT36") &&
+		     !strstr(bootargs, "novatek") && !strstr(bootargs, "NVT"))) {
+			of_node_put(dt_node);
+			return -ENODEV;
+		}
 
 		of_node_put(dt_node);
 
@@ -1386,8 +1386,10 @@ int nt36xxx_probe(struct device *dev, int irq, const struct input_id *id,
 		return ret;
 	}
 
+	/* The A22x EINT GPIO14 is falling-edge in the device tree. Do not
+	 * override its trigger to rising-edge at request_irq() time. */
 	ret = devm_request_threaded_irq(dev, ts->irq, NULL, nt36xxx_irq_handler,
-			IRQ_TYPE_EDGE_RISING | IRQF_ONESHOT, dev_name(dev), ts);
+			IRQF_ONESHOT, dev_name(dev), ts);
 	if (ret) {
 		dev_err(dev, "request irq failed: %d\n", ret);
 		return ret;
@@ -1402,7 +1404,9 @@ int nt36xxx_probe(struct device *dev, int irq, const struct input_id *id,
 
 	if (drm_is_panel_follower(dev)) {
 		ts->panel_follower.funcs = &nt36xxx_panel_follower_funcs;
-		devm_drm_panel_add_follower(dev, &ts->panel_follower);
+		ret = devm_drm_panel_add_follower(dev, &ts->panel_follower);
+		if (ret)
+			return dev_err_probe(dev, ret, "cannot follow display panel\n");
 	} else {
 		pm_runtime_enable(dev);
 	}
