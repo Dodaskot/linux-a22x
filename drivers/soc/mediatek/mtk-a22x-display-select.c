@@ -41,6 +41,18 @@ static const char * const a22x_fallback_disable[] = {
 	"/regulator-panel-vdd",
 	"/regulator-panel-vsp",
 	"/regulator-panel-vsn",
+	/*
+	 * Not in the simple-framebuffer devicetree that works on non-JDI panels
+	 * (recovery 1.0.2.2-beta4 on a Tianma NT36672C phone). With them left on,
+	 * beta5 lost the picture about 50 s after boot and the TDDI touch reports
+	 * failed their checksum from then on (mainline-recovery issue #3). The
+	 * fallback now matches that working tree: the whole native display bus
+	 * (including its clock controller), the low-power controller and the
+	 * modem power controller stay off.
+	 */
+	"/display-ml",
+	"/power-controller@c55fce0",
+	"/modem@10209000",
 };
 
 static const char * const a22x_fallback_enable[] = {
