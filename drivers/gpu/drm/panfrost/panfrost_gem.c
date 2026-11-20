@@ -352,13 +352,32 @@ panfrost_gem_prime_end_cpu_access(struct dma_buf *dma_buf,
 	return 0;
 }
 
+/* A reader's own mapping of an exported buffer (A22x recovery, 2026-11-21): its compositor copies each
+ * browser frame, 8.9 MB, and through the default write-combined mapping a copy took 7.5-13 ms against
+ * 1.8-2 ms cached (measured on the phone). A mapping that can never be written is made cacheable; the
+ * reader brackets its reads with DMA_BUF_IOCTL_SYNC, whose begin_cpu_access invalidates those lines
+ * (dma_sync_sgtable_for_cpu), so it reads what the GPU wrote. Without write access no line becomes
+ * dirty. Writable mappings stay write-combined. */
+static int panfrost_gem_prime_mmap(struct dma_buf *dma_buf, struct vm_area_struct *vma)
+{
+	bool reader = !(vma->vm_flags & VM_WRITE);
+	int ret;
+
+	if (reader)
+		vm_flags_clear(vma, VM_MAYWRITE);
+	ret = drm_gem_dmabuf_mmap(dma_buf, vma);
+	if (!ret && reader)
+		vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
+	return ret;
+}
+
 static const struct dma_buf_ops panfrost_dma_buf_ops = {
 	.attach = drm_gem_map_attach,
 	.detach = drm_gem_map_detach,
 	.map_dma_buf = panfrost_gem_prime_map_dma_buf,
 	.unmap_dma_buf = panfrost_gem_prime_unmap_dma_buf,
 	.release = drm_gem_dmabuf_release,
-	.mmap = drm_gem_dmabuf_mmap,
+	.mmap = panfrost_gem_prime_mmap,
 	.vmap = drm_gem_dmabuf_vmap,
 	.vunmap = drm_gem_dmabuf_vunmap,
 	.begin_cpu_access = panfrost_gem_prime_begin_cpu_access,
