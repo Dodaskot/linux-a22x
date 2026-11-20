@@ -84,9 +84,16 @@ static inline void map_dma_buffer(struct musb_request *request,
 static inline void unmap_dma_buffer(struct musb_request *request,
 				struct musb *musb)
 {
-	struct musb_ep *musb_ep = request->ep;
-
-	if (!is_buffer_mapped(request) || !musb_ep->dma)
+	/*
+	 * The mapping belongs to the request, not to the DMA channel: nuke()
+	 * releases the channel (ep->dma = NULL) before it gives the requests
+	 * back. Returning here on !musb_ep->dma left such a request mapped
+	 * with its old address; a gadget driver that queues the same request
+	 * again (f_fs reuses one request per endpoint) then took the stale
+	 * address as PRE_MAPPED, the controller wrote into a bounce buffer
+	 * that was no longer this request's, and the reader got zeros.
+	 */
+	if (!is_buffer_mapped(request))
 		return;
 
 	if (request->request.dma == DMA_ADDR_INVALID) {
