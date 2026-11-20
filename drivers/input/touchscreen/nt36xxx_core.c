@@ -1687,9 +1687,15 @@ static int panel_unpreparing(struct drm_panel_follower *follower)
 	return nt36xxx_internal_pm_suspend(ts->dev);
 }
 
+/*
+ * Resumed once the panel is enabled (initialized, out of sleep and on) and suspended
+ * before it is disabled, where the vendor driver notifies the touch part: after its
+ * display-on, before its display-off (2026-11-20: the A22x Tianma NT36672C panel sends
+ * display-on in enable(), after prepare()).
+ */
 static struct drm_panel_follower_funcs nt36xxx_panel_follower_funcs = {
-	.panel_prepared = panel_prepared,
-	.panel_unpreparing = panel_unpreparing,
+	.panel_enabled = panel_prepared,
+	.panel_disabling = panel_unpreparing,
 };
 
 MODULE_LICENSE("GPL");
