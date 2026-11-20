@@ -4,7 +4,8 @@
  * the bootloader found.
  *
  * The native-display devicetree describes the MediaTek DSI pipeline with the
- * JDI HX83112F panel, the only panel this kernel has a driver for. LK names
+ * JDI HX83112F panel; the Tianma NT36672C driver is used only on the field-test
+ * path below. LK names
  * the fitted panel as a bare command-line token (the stock kernel's
  * tp_match_lcm_name() reads the same token). When LK names another panel,
  * keep the framebuffer LK left lit instead of driving a panel the JDI driver
@@ -163,9 +164,14 @@ static int __init a22x_display_select(void)
 	}
 
 	/* On failure nothing was changed and the framebuffer path follows. */
-	if (tianma_native && !force_fallback && a22x_bootargs_word(A22X_PANEL_TIANMA) &&
-	    !a22x_select_tianma())
-		return 0;
+	if (tianma_native) {
+		if (force_fallback)
+			pr_info("tianma_native ignored: force_fallback is set\n");
+		else if (!a22x_bootargs_word(A22X_PANEL_TIANMA))
+			pr_info("tianma_native ignored: LK names no Tianma NT36672C panel\n");
+		else if (!a22x_select_tianma())
+			return 0;
+	}
 
 	of_changeset_init(&ocs);
 	for (i = 0; !ret && i < ARRAY_SIZE(a22x_fallback_disable); i++)
