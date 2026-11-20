@@ -16,6 +16,10 @@
  *
  * A devicetree without the native pipeline, or a command line without any
  * panel token, is left as it is.
+ *
+ * Field test: with tianma_native=1 a Tianma NT36672C panel keeps the native
+ * pipeline instead, driven by its own panel driver, and its touch part follows
+ * that panel. Without the parameter it takes the framebuffer path above.
  */
 #define pr_fmt(fmt) "a22x-display: " fmt
 
@@ -26,10 +30,17 @@
 
 #define A22X_PANEL_FAMILY	"_fhdp_wt_dsi_vdo_cphy_90hz_"
 #define A22X_PANEL_JDI		"hx83112f_fhdp_wt_dsi_vdo_cphy_90hz_jdi"
+#define A22X_PANEL_TIANMA	"nt36672c_fhdp_wt_dsi_vdo_cphy_90hz_tianma"
+#define A22X_PANEL_NODE		"/display-ml/dsi-ml@14013000/panel@0"
+#define A22X_TIANMA_COMPATIBLE	"tianma,nt36672c-a22x"
 
 /* Test aid: take the fallback path on a JDI phone too. */
 static bool force_fallback;
 module_param(force_fallback, bool, 0444);
+
+/* Field test: drive a Tianma NT36672C panel natively (see above). */
+static bool tianma_native;
+module_param(tianma_native, bool, 0444);
 
 static const char * const a22x_fallback_disable[] = {
 	"/display-ml/syscon@14000000",
@@ -75,6 +86,46 @@ static int a22x_status(struct of_changeset *ocs, const char *path,
 	return ret;
 }
 
+/* LK names the panel as a bare word of the command line. */
+static bool a22x_bootargs_word(const char *word)
+{
+	const char *bootargs, *p;
+	size_t len = strlen(word);
+
+	if (!of_chosen || of_property_read_string(of_chosen, "bootargs", &bootargs))
+		return false;
+	for (p = bootargs; (p = strstr(p, word)); p += len)
+		if ((p == bootargs || p[-1] == ' ') && (!p[len] || p[len] == ' '))
+			return true;
+	return false;
+}
+
+/* Swap the JDI panel driver for the Tianma one; the rest of the native tree stays. */
+static int __init a22x_select_tianma(void)
+{
+	struct device_node *np = of_find_node_by_path(A22X_PANEL_NODE);
+	struct of_changeset ocs;
+	int ret;
+
+	if (!np) {
+		pr_err("%s is missing\n", A22X_PANEL_NODE);
+		return -ENOENT;
+	}
+	of_changeset_init(&ocs);
+	ret = of_changeset_update_prop_string(&ocs, np, "compatible",
+					      A22X_TIANMA_COMPATIBLE);
+	of_node_put(np);
+	if (!ret)
+		ret = of_changeset_apply(&ocs);
+	if (ret) {
+		pr_err("cannot select the Tianma panel driver: %d\n", ret);
+		of_changeset_destroy(&ocs);
+		return ret;
+	}
+	pr_info("Tianma panel: native MediaTek display, NT36672C driver (field test)\n");
+	return 0;
+}
+
 static bool a22x_other_panel(void)
 {
 	const char *bootargs;
@@ -110,6 +161,11 @@ static int __init a22x_display_select(void)
 		pr_info("JDI panel or no panel token: native MediaTek display\n");
 		return 0;
 	}
+
+	/* On failure nothing was changed and the framebuffer path follows. */
+	if (tianma_native && !force_fallback && a22x_bootargs_word(A22X_PANEL_TIANMA) &&
+	    !a22x_select_tianma())
+		return 0;
 
 	of_changeset_init(&ocs);
 	for (i = 0; !ret && i < ARRAY_SIZE(a22x_fallback_disable); i++)
