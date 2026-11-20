@@ -233,7 +233,9 @@ static int nt36672c_prepare(struct drm_panel *panel)
 	ret = nt36672c_init(ctx);
 	if (ret) {
 		gpiod_set_value_cansleep(ctx->reset, 1);
-		nt36672c_power_off(ctx);
+		/* As in standby: the rails stay on unless they are allowed to go. */
+		if (!keep_power_in_standby)
+			nt36672c_power_off(ctx);
 	}
 	return ret;
 }
@@ -368,7 +370,14 @@ static int nt36672c_probe(struct mipi_dsi_device *dsi)
 					    nt36672c_supplies, &ctx->supplies);
 	if (ret)
 		return dev_err_probe(dev, ret, "Failed to get supplies\n");
-	ctx->reset = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
+	/*
+	 * Released (logical 0: RESX high), as the vendor driver leaves it: the panel LK
+	 * started keeps running, and the touch part of this chip, which RESX resets too,
+	 * can be probed before the first prepare() (2026-11-20 review: requested asserted,
+	 * the touch probe that reads the chip found it in reset and gave up). prepare()
+	 * asserts reset before the power sequence.
+	 */
+	ctx->reset = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
 	if (IS_ERR(ctx->reset))
 		return dev_err_probe(dev, PTR_ERR(ctx->reset), "Failed to get reset\n");
 
