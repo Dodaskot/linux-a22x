@@ -99,6 +99,19 @@ struct nt36xxx_ts {
 #define NT36XXX_STATUS_DOWNLOAD_RECOVER		BIT(2)
 #define NT36XXX_STATUS_PREPARE_FIRMWARE		BIT(3)
 #define NT36XXX_STATUS_NEED_FIRMWARE      	BIT(4)
+/* Asleep with the panel, watching for a double tap (wake_gesture). */
+#define NT36XXX_STATUS_GESTURE			BIT(5)
+
+/*
+ * Vendor AOT mode: while the panel sleeps with its rails on, host command 0x13 puts
+ * the touch part into gesture mode instead of deep sleep (0x11), and a double tap
+ * (gesture 15, or 15 in a data-protocol frame of the gesture page) reports KEY_WAKEUP.
+ * Only on the panel-follower path, where the panel driver keeps the rails on.
+ */
+#define NT36XXX_CMD_ENTER_GESTURE		0x13
+#define NT36XXX_GESTURE_DOUBLE_TAP		15
+#define NT36XXX_GESTURE_DATA_PROTOCOL		30
+#define NT36XXX_GESTURE_FUNCPAGE		0x01
 
 	unsigned int status;
 
@@ -135,6 +148,10 @@ struct nt36xxx_ts {
 	struct firmware fw_entry; /* containing request fw data */
 	const struct nt36xxx_chip_data *data;
 };
+
+static bool wake_gesture = true;
+module_param(wake_gesture, bool, 0644);
+MODULE_PARM_DESC(wake_gesture, "A double tap wakes the screen while the panel sleeps (panel follower only)");
 
 static const struct nt36xxx_trim_table trim_id_table[] = {
 	/* TODO: port and test all related module */
@@ -550,6 +567,40 @@ static void nt36xxx_bad_frame(struct nt36xxx_ts *ts)
 }
 
 /* Read one touch frame and report its contacts. */
+/*
+ * Stock nvt_ts_work_func(): no page select, one transfer, 108 data bytes from
+ * offset 0 of the page left at EVENT_BUF. On a real A22x a page select before
+ * each frame returned a static block instead.
+ */
+static int nt36xxx_read_frame(struct nt36xxx_ts *ts, u8 *point, size_t length)
+{
+	if (ts->frame_page_select)
+		return regmap_raw_read(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR],
+				       point, length);
+	return nt36xxx_bus_read_nopage(ts->dev, 0, point, length);
+}
+
+/* Vendor nvt_ts_wakeup_gesture_report(), for the double tap only. */
+static void nt36xxx_gesture(struct nt36xxx_ts *ts)
+{
+	u8 point[NT36XXX_FRAME_READ_LEN];
+	u8 id;
+
+	if (nt36xxx_read_frame(ts, point, sizeof(point)) < 0)
+		return;
+	/* point[0] is the stock buffer's byte 1: the gesture id in its high five bits. */
+	id = point[0] >> 3;
+	if (id == NT36XXX_GESTURE_DATA_PROTOCOL && point[1] == NT36XXX_GESTURE_FUNCPAGE)
+		id = point[2];
+	if (id != NT36XXX_GESTURE_DOUBLE_TAP)
+		return;
+	dev_info(ts->dev, "double tap: wake\n");
+	input_report_key(ts->input, KEY_WAKEUP, 1);
+	input_sync(ts->input);
+	input_report_key(ts->input, KEY_WAKEUP, 0);
+	input_sync(ts->input);
+}
+
 static void nt36xxx_report(struct nt36xxx_ts *ts)
 {
 	struct nt36xxx_abs_object *obj = &ts->abs_obj;
@@ -560,16 +611,7 @@ static void nt36xxx_report(struct nt36xxx_ts *ts)
 	if (ts->status & NT36XXX_STATUS_SUSPEND)
 		return;
 
-	/*
-	 * Stock nvt_ts_work_func(): no page select, one transfer, 108 data
-	 * bytes from offset 0 of the page left at EVENT_BUF. On a real A22x a
-	 * page select before each frame returned a static block instead.
-	 */
-	if (ts->frame_page_select)
-		ret = regmap_raw_read(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR],
-				      point, sizeof(point));
-	else
-		ret = nt36xxx_bus_read_nopage(ts->dev, 0, point, sizeof(point));
+	ret = nt36xxx_read_frame(ts, point, sizeof(point));
 	if (ret < 0) {
 		dev_err_ratelimited(ts->dev,
 				    "Cannot read touch point data: %d\n", ret);
@@ -672,8 +714,11 @@ static irqreturn_t nt36xxx_irq_handler(int irq, void *dev_id)
 	if (!ts->mmap)
 		goto exit;
 
-	if (ts->status & NT36XXX_STATUS_SUSPEND)
+	if (ts->status & NT36XXX_STATUS_SUSPEND) {
+		if (ts->status & NT36XXX_STATUS_GESTURE)
+			nt36xxx_gesture(ts);
 		goto exit;
+	}
 
 	/* IRQF_ONESHOT keeps the line masked until this thread returns. */
 	nt36xxx_report(ts);
@@ -1375,6 +1420,10 @@ static int nt36xxx_input_dev_config(struct nt36xxx_ts *ts, const struct input_id
 
 	touchscreen_parse_properties(ts->input, true, &ts->prop);
 
+	/* The double tap of the wake gesture (panel follower only). */
+	if (drm_is_panel_follower(dev))
+		input_set_capability(ts->input, EV_KEY, KEY_WAKEUP);
+
 	WARN(ts->prop.max_x < 1, "ts->prop.max_x < 1");
 
 	ret = input_mt_init_slots(ts->input, TOUCH_MAX_FINGER_NUM,
@@ -1660,12 +1709,39 @@ EXPORT_GPL_SIMPLE_DEV_PM_OPS(nt36xxx_pm_ops,
 			     nt36xxx_pm_suspend,
 			     nt36xxx_pm_resume);
 
+/*
+ * Vendor nvt_set_aot_mode(): 0x13 to EVENT_BUF + 0x50 instead of deep sleep, once
+ * the firmware runs. Called with the interrupt disabled and SUSPEND set.
+ */
+static int nt36xxx_enter_gesture(struct nt36xxx_ts *ts)
+{
+	int ret = -EAGAIN;
+
+	cancel_delayed_work_sync(&ts->work);
+	mutex_lock(&ts->lock);
+	if (ts->status & NT36XXX_STATUS_DOWNLOAD_COMPLETE) {
+		ret = regmap_write(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR] |
+				   NT36XXX_EVT_HOST_CMD, NT36XXX_CMD_ENTER_GESTURE);
+		if (!ret)
+			ts->status |= NT36XXX_STATUS_GESTURE;
+	}
+	mutex_unlock(&ts->lock);
+	nt36xxx_release_contacts(ts);
+	if (ret)
+		dev_info(ts->dev, "no wake gesture this time: %d\n", ret);
+	return ret;
+}
+
 static int panel_prepared(struct drm_panel_follower *follower)
 {
 	struct nt36xxx_ts *ts = container_of(follower, struct nt36xxx_ts, panel_follower);
 
-	if (ts->status & NT36XXX_STATUS_SUSPEND)
+	/* In gesture mode the interrupt stayed on. */
+	if ((ts->status & NT36XXX_STATUS_SUSPEND) && !(ts->status & NT36XXX_STATUS_GESTURE))
 		enable_irq(ts->irq);
+	mutex_lock(&ts->lock);
+	ts->status &= ~NT36XXX_STATUS_GESTURE;
+	mutex_unlock(&ts->lock);
 
 	/* supposed to clear the flag here, but leave to internal_pm_resume
 	 * for greater purpose, then clear flag as:
@@ -1684,6 +1760,10 @@ static int panel_unpreparing(struct drm_panel_follower *follower)
 
 	disable_irq(ts->irq);
 
+	if (wake_gesture && !nt36xxx_enter_gesture(ts)) {
+		enable_irq(ts->irq);
+		return 0;
+	}
 	return nt36xxx_internal_pm_suspend(ts->dev);
 }
 
