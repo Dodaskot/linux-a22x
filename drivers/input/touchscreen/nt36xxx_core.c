@@ -580,7 +580,13 @@ static int nt36xxx_read_frame(struct nt36xxx_ts *ts, u8 *point, size_t length)
 	return nt36xxx_bus_read_nopage(ts->dev, 0, point, length);
 }
 
-/* Vendor nvt_ts_wakeup_gesture_report(), for the double tap only. */
+/*
+ * Vendor nvt_ts_wakeup_gesture_report(), for the double tap only. As in the
+ * stock nvt_ts_work_func(), a frame reaches it only past the watchdog and ESD
+ * patterns and the frame checksum: without them a tester's screen woke by
+ * itself every few minutes (2026-11-21, issue #10), on frames this driver
+ * never checked.
+ */
 static void nt36xxx_gesture(struct nt36xxx_ts *ts)
 {
 	u8 point[NT36XXX_FRAME_READ_LEN];
@@ -588,13 +594,26 @@ static void nt36xxx_gesture(struct nt36xxx_ts *ts)
 
 	if (nt36xxx_read_frame(ts, point, sizeof(point)) < 0)
 		return;
+	if (nt36xxx_bytes_all(point, 6, 0xFD, 0xFE) ||
+	    nt36xxx_bytes_all(point, 6, 0x77, 0x77)) {
+		dev_info_ratelimited(ts->dev, "gesture: no gesture, firmware frame %6ph\n", point);
+		return;
+	}
+	if (!nt36xxx_point_checksum_ok(point)) {
+		dev_info_ratelimited(ts->dev, "gesture: frame checksum mismatch %8ph\n", point);
+		return;
+	}
 	/* point[0] is the stock buffer's byte 1: the gesture id in its high five bits. */
 	id = point[0] >> 3;
 	if (id == NT36XXX_GESTURE_DATA_PROTOCOL && point[1] == NT36XXX_GESTURE_FUNCPAGE)
 		id = point[2];
-	if (id != NT36XXX_GESTURE_DOUBLE_TAP)
+	else if (id > NT36XXX_GESTURE_DATA_PROTOCOL)
 		return;
-	dev_info(ts->dev, "double tap: wake\n");
+	if (id != NT36XXX_GESTURE_DOUBLE_TAP) {
+		dev_info_ratelimited(ts->dev, "gesture %u: not a double tap\n", id);
+		return;
+	}
+	dev_info(ts->dev, "double tap: wake (%8ph)\n", point);
 	input_report_key(ts->input, KEY_WAKEUP, 1);
 	input_sync(ts->input);
 	input_report_key(ts->input, KEY_WAKEUP, 0);
