@@ -5,8 +5,10 @@
 struct drm_device;
 
 #if IS_ENABLED(CONFIG_DRM_MEDIATEK_BOOT_SPLASH)
+void mtk_boot_splash_prefetch(void);
 void mtk_boot_splash_start(struct drm_device *drm);
 #else
+static inline void mtk_boot_splash_prefetch(void) {}
 static inline void mtk_boot_splash_start(struct drm_device *drm) {}
 #endif
 

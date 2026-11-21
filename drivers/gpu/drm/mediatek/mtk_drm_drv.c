@@ -1317,6 +1317,7 @@ static struct platform_driver * const mtk_drm_drivers[] = {
 
 static int __init mtk_drm_init(void)
 {
+	mtk_boot_splash_prefetch();
 	return platform_register_drivers(mtk_drm_drivers,
 					 ARRAY_SIZE(mtk_drm_drivers));
 }

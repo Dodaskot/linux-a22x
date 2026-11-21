@@ -14,7 +14,8 @@
  * long before the display, then drawn the moment the framebuffer exists, without waiting for
  * /init (the screen stayed black for about 1.4 s between the bootloader and the recovery). Only
  * without a whole record is a built-in theme drawn. boot_splash_source says which: loading, misc
- * or builtin.
+ * or builtin. The record is read and unpacked by a thread of its own from the driver's init, so
+ * the picture is ready when the framebuffer comes (read after it, it came 0.13 s late).
  */
 #include <linux/blkdev.h>
 #include <linux/delay.h>
@@ -104,6 +105,11 @@ MODULE_PARM_DESC(boot_splash_theme, "Theme of the boot splash: graphite, dayligh
 
 enum { SOURCE_LOADING, SOURCE_MISC, SOURCE_BUILTIN };
 static int splash_source;
+#define MISC_WAIT_MS 10000
+/* The picture the loader made, until the splash thread takes it (or a stop drops it). */
+static DEFINE_MUTEX(misc_lock);
+static u32 *misc_frame, misc_track, misc_fill;
+static bool misc_dropped;
 
 static int boot_splash_source_get(char *buffer, const struct kernel_param *param)
 {
@@ -325,6 +331,41 @@ static int misc_splash(u32 **frame, u32 *track, u32 *fill)
 	return *frame ? 0 : -EINVAL;
 }
 
+static int misc_loader(void *unused)
+{
+	unsigned long start = jiffies;
+	u32 *frame = NULL, track = 0, fill = 0;
+	int error;
+
+	for (;;) {
+		error = misc_splash(&frame, &track, &fill);
+		if (error != -ENODEV || jiffies_to_msecs(jiffies - start) >= MISC_WAIT_MS)
+			break;
+		msleep(20);
+	}
+	mutex_lock(&misc_lock);
+	if (!error && !misc_dropped) {
+		misc_frame = frame;
+		misc_track = track;
+		misc_fill = fill;
+		frame = NULL;
+	}
+	mutex_unlock(&misc_lock);
+	vfree(frame);
+	WRITE_ONCE(splash_source, error ? SOURCE_BUILTIN : SOURCE_MISC);
+	if (error)
+		pr_info("[drm] boot splash: no picture in misc (%d)\n", error);
+	else
+		pr_info("[drm] boot splash: the theme's picture from misc, ready\n");
+	return 0;
+}
+
+void mtk_boot_splash_prefetch(void)
+{
+	if (IS_ERR(kthread_run(misc_loader, NULL, "boot-splash-misc")))
+		WRITE_ONCE(splash_source, SOURCE_BUILTIN);
+}
+
 static u32 *splash_row(struct fb_info *info, unsigned int y)
 {
 	return (u32 *)((u8 *)info->screen_buffer +
@@ -377,17 +418,16 @@ static int splash_thread(void *data)
 	while (!kthread_should_stop()) {
 		unsigned int elapsed = jiffies_to_msecs(jiffies - start);
 
-		/* The theme's picture, until misc is found; once it is, its answer stands. */
-		if (READ_ONCE(splash_source) == SOURCE_LOADING) {
-			int error = misc_splash(&picture, &track, &fill);
-
-			if (!error) {
-				WRITE_ONCE(splash_source, SOURCE_MISC);
+		/* The theme's picture, once the loader has it. */
+		if (!drawn && info && READ_ONCE(splash_source) == SOURCE_MISC) {
+			mutex_lock(&misc_lock);
+			picture = misc_frame;
+			misc_frame = NULL;
+			track = misc_track;
+			fill = misc_fill;
+			mutex_unlock(&misc_lock);
+			if (picture)
 				drm_info(drm, "boot splash: the theme's picture from misc\n");
-			} else if (error != -ENODEV || info) {
-				WRITE_ONCE(splash_source, SOURCE_BUILTIN);
-				drm_info(drm, "boot splash: no picture in misc (%d)\n", error);
-			}
 		}
 
 		if (!info) {
@@ -445,6 +485,11 @@ static int boot_splash_stop_set(const char *value, const struct kernel_param *pa
 		splash_task = NULL;
 	}
 	mutex_unlock(&splash_lock);
+	mutex_lock(&misc_lock);
+	misc_dropped = true;
+	vfree(misc_frame);
+	misc_frame = NULL;
+	mutex_unlock(&misc_lock);
 	return 0;
 }
 
