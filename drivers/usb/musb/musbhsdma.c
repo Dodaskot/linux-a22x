@@ -252,6 +252,10 @@ static int dma_channel_abort(struct dma_channel *channel)
 			musb_writew(mbase, offset, csr);
 		}
 
+		/* What the channel moved before it stopped (an OUT transfer ended early). */
+		channel->actual_len = musb_read_hsdma_addr(mbase, bchannel) -
+				      musb_channel->start_addr;
+
 		musb_writew(mbase,
 			MUSB_HSDMA_CHANNEL_OFFSET(bchannel, MUSB_HSDMA_CONTROL),
 			0);
@@ -312,6 +316,14 @@ irqreturn_t dma_controller_irq(int irq, void *private_data)
 			musb_channel = (struct musb_dma_channel *)
 					&(controller->channel[bchannel]);
 			channel = &musb_channel->channel;
+
+			/*
+			 * Stopped by channel_abort() meanwhile (the gadget's OUT
+			 * transfer ended by a short packet): already counted.  A
+			 * host's CORE_ABORT still completes as before.
+			 */
+			if (channel->status == MUSB_DMA_STATUS_FREE)
+				continue;
 
 			csr = musb_readw(mbase,
 					MUSB_HSDMA_CHANNEL_OFFSET(bchannel,

@@ -120,6 +120,19 @@ static inline void unmap_dma_buffer(struct musb_request *request,
 	request->map_state = UN_MAPPED;
 }
 
+/*
+ * Inventra DMA moves an OUT transfer of whole packets in one go (mode 1)
+ * instead of one packet per DMA (mode 0, two interrupts per 512 bytes): a push
+ * over adb ran at 12 MB/s on an A22x with the CPU at its top clock.  Mode 1
+ * gives no DMA completion for a short packet or a zero-length one; those raise
+ * the endpoint interrupt while the DMA is still busy, which stops it, counts
+ * what it moved and unloads that packet as before.  Off until proven on the
+ * phone; switched at run time.
+ */
+static bool rx_mode1;
+module_param(rx_mode1, bool, 0644);
+MODULE_PARM_DESC(rx_mode1, "OUT transfers of whole packets in one DMA (Inventra mode 1)");
+
 /* Caller holds the controller lock.  None of these gates can revive another. */
 static bool musb_g_rx_ready(struct musb *musb)
 {
@@ -618,6 +631,11 @@ static void rxstate(struct musb *musb, struct musb_request *req)
 
 		if (request->short_not_ok && fifo_count == musb_ep->packet_sz)
 			use_mode_1 = 1;
+		else if (rx_mode1 && musb_dma_inventra(musb) &&
+			 musb_ep->type == USB_ENDPOINT_XFER_BULK && !musb_ep->hb_mult &&
+			 fifo_count == musb_ep->packet_sz &&
+			 request->length - request->actual >= 2 * musb_ep->packet_sz)
+			use_mode_1 = 2;	/* whole packets, ended early by a short one */
 		else
 			use_mode_1 = 0;
 
@@ -675,6 +693,9 @@ static void rxstate(struct musb *musb, struct musb_request *req)
 							request->length -
 							request->actual,
 							channel->max_len);
+					if (use_mode_1 == 2)
+						transfer_size = rounddown(transfer_size,
+								musb_ep->packet_sz);
 					musb_ep->dma->desired_mode = 1;
 				} else {
 					if (!musb_ep->hb_mult &&
@@ -871,6 +892,30 @@ void musb_g_rx(struct musb *musb, u8 epnum)
 	}
 
 	if (dma_channel_status(dma) == MUSB_DMA_STATUS_BUSY) {
+		/*
+		 * rx_mode1: a short or zero-length packet ends the transfer
+		 * before the DMA's count and gets no DMA request.  Stop the DMA,
+		 * count what it moved and unload that packet as in mode 0.
+		 */
+		if (rx_mode1 && dma->desired_mode == 1 &&
+		    (csr & MUSB_RXCSR_RXPKTRDY) &&
+		    musb_readw(epio, MUSB_RXCOUNT) < musb_ep->packet_sz) {
+			musb->dma_controller->channel_abort(dma);
+			request->actual += dma->actual_len;
+			dma->desired_mode = 0;
+			if (request->actual >= request->length) {
+				musb_g_giveback(musb_ep, request, 0);
+				if (!musb_g_rx_ready(musb) || !musb_ep->desc ||
+				    musb_ep->is_in || musb_ep->busy)
+					return;
+				musb_ep_select(mbase, epnum);
+				req = next_request(musb_ep);
+				if (!req)
+					return;
+			}
+			rxstate(musb, req);
+			return;
+		}
 		/* "should not happen"; likely RXPKTRDY pending for DMA */
 		musb_dbg(musb, "%s busy, csr %04x",
 			musb_ep->end_point.name, csr);
