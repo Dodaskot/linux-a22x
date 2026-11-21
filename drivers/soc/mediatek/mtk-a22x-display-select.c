@@ -18,9 +18,12 @@
  * A devicetree without the native pipeline, or a command line without any
  * panel token, is left as it is.
  *
- * Field test: with tianma_native=1 a Tianma NT36672C panel keeps the native
- * pipeline instead, driven by its own panel driver, and its touch part follows
- * that panel. Without the parameter it takes the framebuffer path above.
+ * A Tianma NT36672C panel keeps the native pipeline instead, driven by its own
+ * panel driver, and its touch part follows that panel (tianma_native, on by
+ * default since 2026-11-21: confirmed on a tester's phone through betas 12-14;
+ * a beta without it fell back to the framebuffer, where the recovery could not
+ * blank or dim the screen and its touch was lost). tianma_native=0 takes the
+ * framebuffer path above.
  */
 #define pr_fmt(fmt) "a22x-display: " fmt
 
@@ -39,8 +42,8 @@
 static bool force_fallback;
 module_param(force_fallback, bool, 0444);
 
-/* Field test: drive a Tianma NT36672C panel natively (see above). */
-static bool tianma_native;
+/* Drive a Tianma NT36672C panel natively (see above); =0 for the framebuffer. */
+static bool tianma_native = true;
 module_param(tianma_native, bool, 0444);
 
 static const char * const a22x_fallback_disable[] = {
