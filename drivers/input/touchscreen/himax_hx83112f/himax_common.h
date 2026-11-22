@@ -62,7 +62,7 @@
 
 /*#define HX_NEW_EVENT_STACK_FORMAT*/
 /*#define HX_BOOT_UPGRADE*/
-/* #define HX_SMART_WAKEUP */
+#define HX_SMART_WAKEUP	/* a double tap wakes the screen; off unless wake_gesture (himax_platform.c) */
 /*#define HX_GESTURE_TRACK*/
 #define HX_RESUME_SEND_CMD	/*Need to enable on TDDI chipset*/
 /*#define HX_HIGH_SENSE*/

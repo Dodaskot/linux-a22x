@@ -219,6 +219,41 @@ int himax_ts_unregister_interrupt(void)
 	return 0;
 }
 
+/*
+ * A double tap on the dark screen wakes it (2026-11-22, the owner: as on the Tianma panel, also on Himax).
+ * The vendor's smart wakeup: the flag goes to the chip while the screen is on, and again after every
+ * resume (HX_RESUME_SEND_CMD); the panel then sleeps with its rails on and without deep standby
+ * (panel-himax-hx83112f keep_power_in_standby, which the recovery sets with this), so the touch part of
+ * this TDDI watches for the double tap and reports KEY_WAKEUP. Off by default.
+ */
+static bool wake_gesture;
+
+static void himax_apply_wake_gesture(void)
+{
+	if (!private_ts || !g_hx_chip_inited)
+		return;
+	private_ts->SMWP_enable = wake_gesture;
+	private_ts->gesture_cust_en[0] = wake_gesture;	/* gest_key_def[0]: the double click */
+	if (!private_ts->suspended && g_core_fp.fp_set_SMWP_enable)
+		g_core_fp.fp_set_SMWP_enable(private_ts->SMWP_enable, false);
+}
+
+static int wake_gesture_set(const char *value, const struct kernel_param *kp)
+{
+	int ret = param_set_bool(value, kp);
+
+	if (!ret)
+		himax_apply_wake_gesture();
+	return ret;
+}
+
+static const struct kernel_param_ops wake_gesture_ops = {
+	.set = wake_gesture_set,
+	.get = param_get_bool,
+};
+module_param_cb(wake_gesture, &wake_gesture_ops, &wake_gesture, 0644);
+MODULE_PARM_DESC(wake_gesture, "A double tap wakes the screen while the panel sleeps (with the panel's keep_power_in_standby)");
+
 static int himax_panel_prepared(struct drm_panel_follower *follower)
 {
 	int ret;
@@ -228,10 +263,14 @@ static int himax_panel_prepared(struct drm_panel_follower *follower)
 		ret = himax_chip_common_init();
 		if (ret < 0)
 			return ret;
+		himax_apply_wake_gesture();
 		dev_info(g_device, "HX83112F touch ready after panel power-on\n");
 		return 0;
 	}
-	return himax_chip_common_resume(private_ts);
+	ret = himax_chip_common_resume(private_ts);
+	if (private_ts->SMWP_enable)
+		dev_info(g_device, "HX83112F awake; double tap to wake stays on\n");
+	return ret;
 }
 
 static int himax_panel_unpreparing(struct drm_panel_follower *follower)

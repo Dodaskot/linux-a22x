@@ -22,7 +22,17 @@ struct hx83112f {
 	struct regulator_bulk_data *supplies;
 	struct gpio_desc *reset;
 	bool enabled;
+	bool powered;
 };
+
+/*
+ * While the panel sleeps its rails stay on and it skips deep standby, so the touch part of this TDDI can
+ * watch for a double tap (the touch driver's wake_gesture; 2026-11-22, the owner). prepare() resets and
+ * initialises the panel as always; only the rails are not switched again.
+ */
+static bool keep_power_in_standby;
+module_param(keep_power_in_standby, bool, 0644);
+MODULE_PARM_DESC(keep_power_in_standby, "Keep the rails on and skip deep standby while the panel sleeps (double tap to wake)");
 
 enum hx83112f_supply { HX83112F_VDD, HX83112F_VSP, HX83112F_VSN };
 
@@ -171,6 +181,9 @@ static int hx83112f_init(struct hx83112f *ctx)
 
 static void hx83112f_power_off(struct hx83112f *ctx)
 {
+	if (!ctx->powered)
+		return;
+	ctx->powered = false;
 	/* The negative rail must fall before the positive rail. */
 	regulator_disable(ctx->supplies[HX83112F_VSN].consumer);
 	usleep_range(2000, 3000);
@@ -188,6 +201,8 @@ static int hx83112f_prepare(struct drm_panel *panel)
 	gpiod_set_value_cansleep(ctx->reset, 1);
 	usleep_range(1000, 2000);
 
+	if (ctx->powered)
+		goto reset;	/* slept with its rails on (keep_power_in_standby) */
 	ret = regulator_enable(ctx->supplies[HX83112F_VDD].consumer);
 	if (ret)
 		return ret;
@@ -200,7 +215,9 @@ static int hx83112f_prepare(struct drm_panel *panel)
 	if (ret)
 		goto disable_vsp;
 	usleep_range(2000, 3000);
+	ctx->powered = true;
 
+reset:
 	gpiod_set_value_cansleep(ctx->reset, 0);
 	usleep_range(10000, 11000);
 	gpiod_set_value_cansleep(ctx->reset, 1);
@@ -262,6 +279,12 @@ static int hx83112f_unprepare(struct drm_panel *panel)
 	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi_ctx);
 	/* Still wait if the command failed before removing panel power. */
 	msleep(110);
+	if (keep_power_in_standby) {
+		/* No deep standby, rails on: the touch part watches for a double tap. */
+		if (dsi_ctx.accum_err)
+			dev_warn(&ctx->dsi->dev, "Sleep command failed: %d\n", dsi_ctx.accum_err);
+		return 0;
+	}
 	mipi_dsi_generic_write_seq_multi(&dsi_ctx, 0xb9, 0x83, 0x11, 0x2f);
 	mipi_dsi_generic_write_seq_multi(&dsi_ctx, 0xb1, 0x01);
 	/*
