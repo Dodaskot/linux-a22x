@@ -235,6 +235,16 @@ config DRM_PANEL_NOVATEK_NT36672C_A22X
 	  60 and 90 Hz modes with DCS brightness control. Its touch part
 	  follows the panel as a DRM panel follower.
 
+config DRM_PANEL_TRULY_FT8722_A22X
+	tristate "Truly FT8722 C-PHY panel for Galaxy A22 5G"
+	depends on OF && DRM_MIPI_DSI && BACKLIGHT_CLASS_DEVICE && REGULATOR
+	help
+	  Enable the 1080x2408 Truly panel with the FocalTech FT8722 TDDI
+	  fitted to some Samsung Galaxy A22 5G units. The panel uses three
+	  C-PHY trios and supports 60 and 90 Hz modes with DCS brightness
+	  control. Its touch part (TOUCHSCREEN_FOCALTECH_FT8722) follows the
+	  panel as a DRM panel follower.
+
 config DRM_PANEL_HIMAX_HX83112B
 	tristate "Himax HX83112B-based DSI panel"
 	depends on OF

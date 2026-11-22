@@ -805,6 +805,20 @@ config TOUCHSCREEN_EDT_FT5X06
 	  To compile this driver as a module, choose M here: the
 	  module will be called edt-ft5x06.
 
+config TOUCHSCREEN_FOCALTECH_FT8722
+	bool "FocalTech FT8722 SPI touchscreen"
+	depends on SPI && OF
+	depends on DRM_PANEL || !DRM_PANEL
+	help
+	  Say Y here to enable support for the FocalTech FT8722 touchscreen
+	  controller connected over SPI, the touch part of the Truly panel of
+	  some Samsung Galaxy A22 5G units. Driver selection uses the active
+	  FT8722 panel name in the kernel command line, so this must be built in.
+
+	  The driver downloads the bundled FT8722 Truly firmware whenever its
+	  panel is prepared and provides basic touch reporting. Gestures and
+	  factory-test interfaces are not supported.
+
 config TOUCHSCREEN_RASPBERRYPI_FW
 	tristate "Raspberry Pi's firmware base touch screen support"
 	depends on RASPBERRYPI_FIRMWARE || (RASPBERRYPI_FIRMWARE=n && COMPILE_TEST)

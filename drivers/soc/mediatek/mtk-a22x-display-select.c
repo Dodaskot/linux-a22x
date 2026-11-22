@@ -24,6 +24,12 @@
  * a beta without it fell back to the framebuffer, where the recovery could not
  * blank or dim the screen and its touch was lost). tianma_native=0 takes the
  * framebuffer path above.
+ *
+ * A Truly panel with the FocalTech FT8722 TDDI is driven the same way by its own
+ * panel driver (truly_native, 2026-11-22: the panel and touch drivers come from
+ * YourLocalTechGuy's postmarketOS fork of this kernel, here on the regulators of
+ * this tree; not yet run on such a phone by this project). truly_native=0 takes
+ * the framebuffer path.
  */
 #define pr_fmt(fmt) "a22x-display: " fmt
 
@@ -37,6 +43,8 @@
 #define A22X_PANEL_TIANMA	"nt36672c_fhdp_wt_dsi_vdo_cphy_90hz_tianma"
 #define A22X_PANEL_NODE		"/display-ml/dsi-ml@14013000/panel@0"
 #define A22X_TIANMA_COMPATIBLE	"tianma,nt36672c-a22x"
+#define A22X_PANEL_TRULY	"ft8722_fhdp_wt_dsi_vdo_cphy_90hz_truly"
+#define A22X_TRULY_COMPATIBLE	"truly,ft8722-a22x"
 
 /* Test aid: take the fallback path on a JDI phone too. */
 static bool force_fallback;
@@ -45,6 +53,15 @@ module_param(force_fallback, bool, 0444);
 /* Drive a Tianma NT36672C panel natively (see above); =0 for the framebuffer. */
 static bool tianma_native = true;
 module_param(tianma_native, bool, 0444);
+
+/*
+ * A Truly panel with the FocalTech FT8722 TDDI (2026-11-22, the owner): natively, as
+ * YourLocalTechGuy's postmarketOS fork of this kernel drives it, with its own panel
+ * driver, and its touch part follows it. =0 for the framebuffer, where the touch
+ * driver downloads its firmware once.
+ */
+static bool truly_native = true;
+module_param(truly_native, bool, 0444);
 
 static const char * const a22x_fallback_disable[] = {
 	"/display-ml/syscon@14000000",
@@ -104,8 +121,8 @@ static bool a22x_bootargs_word(const char *word)
 	return false;
 }
 
-/* Swap the JDI panel driver for the Tianma one; the rest of the native tree stays. */
-static int __init a22x_select_tianma(void)
+/* Swap the JDI panel driver for another one; the rest of the native tree stays. */
+static int __init a22x_select_panel(const char *compatible, const char *what)
 {
 	struct device_node *np = of_find_node_by_path(A22X_PANEL_NODE);
 	struct of_changeset ocs;
@@ -116,17 +133,16 @@ static int __init a22x_select_tianma(void)
 		return -ENOENT;
 	}
 	of_changeset_init(&ocs);
-	ret = of_changeset_update_prop_string(&ocs, np, "compatible",
-					      A22X_TIANMA_COMPATIBLE);
+	ret = of_changeset_update_prop_string(&ocs, np, "compatible", compatible);
 	of_node_put(np);
 	if (!ret)
 		ret = of_changeset_apply(&ocs);
 	if (ret) {
-		pr_err("cannot select the Tianma panel driver: %d\n", ret);
+		pr_err("cannot select the %s panel driver: %d\n", what, ret);
 		of_changeset_destroy(&ocs);
 		return ret;
 	}
-	pr_info("Tianma panel: native MediaTek display, NT36672C driver (field test)\n");
+	pr_info("%s\n", what);
 	return 0;
 }
 
@@ -172,9 +188,14 @@ static int __init a22x_display_select(void)
 			pr_info("tianma_native ignored: force_fallback is set\n");
 		else if (!a22x_bootargs_word(A22X_PANEL_TIANMA))
 			pr_info("tianma_native ignored: LK names no Tianma NT36672C panel\n");
-		else if (!a22x_select_tianma())
+		else if (!a22x_select_panel(A22X_TIANMA_COMPATIBLE,
+					    "Tianma panel: native MediaTek display, NT36672C driver"))
 			return 0;
 	}
+	if (truly_native && !force_fallback && a22x_bootargs_word(A22X_PANEL_TRULY) &&
+	    !a22x_select_panel(A22X_TRULY_COMPATIBLE,
+			       "Truly panel: native MediaTek display, FT8722 driver"))
+		return 0;
 
 	of_changeset_init(&ocs);
 	for (i = 0; !ret && i < ARRAY_SIZE(a22x_fallback_disable); i++)
