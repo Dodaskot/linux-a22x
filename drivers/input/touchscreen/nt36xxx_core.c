@@ -28,6 +28,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/unaligned.h>
 #include <drm/drm_panel.h>
+#include <linux/power_supply.h>
 
 #include "nt36xxx.h"
 
@@ -122,6 +123,11 @@ struct nt36xxx_ts {
 	struct drm_panel_follower panel_follower;
 
 	struct delayed_work work;
+
+	/* The charger state the touch IC was last told (2026-11-22, a tester, #10). */
+	struct notifier_block psy_nb;
+	struct work_struct charger_work;
+	bool charger, charger_sent;
 	unsigned int download_attempts;
 	unsigned int wdt_frames;
 	unsigned int frames_logged;
@@ -1246,6 +1252,66 @@ static int nt36xxx_boot_firmware_once(struct nt36xxx_ts *ts)
 	return nt36xxx_check_reset_state(ts, NT36XXX_STATE_INIT);
 }
 
+
+/*
+ * A plugged charger (2026-11-22, a tester, #10: on the Tianma panel the screen woke by itself while USB
+ * was plugged in, and not under One UI). Samsung's driver for this panel (A226B, nvt_set_charger() in
+ * nt36xxx_ext_proc.c) has Android tell the touch IC when USB comes and goes: host command 0x53 (charger
+ * on) or 0x51 (charger off) to EVENT_BUF + 0x50, so that the firmware uses its settings against charger
+ * noise. Here the power supply class tells the driver; the state is sent again after every firmware
+ * download (each resume), and not while the IC sleeps deeply. Called with ts->lock held.
+ */
+#define NT36XXX_CMD_CHARGER_ON		0x53
+#define NT36XXX_CMD_CHARGER_OFF		0x51
+
+static void nt36xxx_charger_locked(struct nt36xxx_ts *ts)
+{
+	bool plugged = power_supply_is_system_supplied() > 0;
+	int ret;
+
+	if (!(ts->status & NT36XXX_STATUS_DOWNLOAD_COMPLETE) ||
+	    ((ts->status & NT36XXX_STATUS_SUSPEND) && !(ts->status & NT36XXX_STATUS_GESTURE)))
+		return;
+	if (ts->charger_sent && plugged == ts->charger)
+		return;
+	ret = regmap_write(ts->regmap, ts->mmap[MMAP_EVENT_BUF_ADDR] | NT36XXX_EVT_HOST_CMD,
+			   plugged ? NT36XXX_CMD_CHARGER_ON : NT36XXX_CMD_CHARGER_OFF);
+	if (ret) {
+		dev_warn(ts->dev, "cannot tell the touch IC about the charger: %d\n", ret);
+		return;
+	}
+	ts->charger = plugged;
+	ts->charger_sent = true;
+	dev_info(ts->dev, "touch IC told: charger %s\n", plugged ? "plugged" : "unplugged");
+}
+
+static void nt36xxx_charger_work(struct work_struct *work)
+{
+	struct nt36xxx_ts *ts = container_of(work, struct nt36xxx_ts, charger_work);
+
+	mutex_lock(&ts->lock);
+	nt36xxx_charger_locked(ts);
+	mutex_unlock(&ts->lock);
+}
+
+/* The power supply notifier chain is atomic: the command is sent from a work. */
+static int nt36xxx_psy_notify(struct notifier_block *nb, unsigned long event, void *data)
+{
+	struct nt36xxx_ts *ts = container_of(nb, struct nt36xxx_ts, psy_nb);
+
+	if (event == PSY_EVENT_PROP_CHANGED)
+		schedule_work(&ts->charger_work);
+	return NOTIFY_OK;
+}
+
+static void nt36xxx_charger_stop(void *data)
+{
+	struct nt36xxx_ts *ts = data;
+
+	power_supply_unreg_notifier(&ts->psy_nb);
+	cancel_work_sync(&ts->charger_work);
+}
+
 static int _nt36xxx_boot_download_firmware(struct nt36xxx_ts *ts)
 {
 	int ret = -EIO, retry;
@@ -1294,6 +1360,8 @@ static int _nt36xxx_boot_download_firmware(struct nt36xxx_ts *ts)
 	ts->bad_frames = 0;
 
 	ts->status |= NT36XXX_STATUS_DOWNLOAD_COMPLETE;
+	ts->charger_sent = false;
+	nt36xxx_charger_locked(ts);
 
 	return 0;
 }
@@ -1615,6 +1683,14 @@ int nt36xxx_probe(struct device *dev, int irq, const struct input_id *id,
 
 	/* have to make sure this is first time schedule work, if devm_drm_panel_add_follower
 	 * called into internal resume with schedule_delay_work, then block it over there */
+	INIT_WORK(&ts->charger_work, nt36xxx_charger_work);
+	ts->psy_nb.notifier_call = nt36xxx_psy_notify;
+	ret = power_supply_reg_notifier(&ts->psy_nb);
+	if (!ret)
+		ret = devm_add_action_or_reset(dev, nt36xxx_charger_stop, ts);
+	if (ret)
+		dev_warn(dev, "no charger notifications: %d\n", ret);
+
 	if (ts->fw_name) {
 		ts->status |= NT36XXX_STATUS_NEED_FIRMWARE;
 
